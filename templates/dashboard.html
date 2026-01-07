@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Panel del Usuario · Vehiculos{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Solicitud de unidades</h2>
+    <p>Capture la salida y gestione la asignacion de vehiculos disponibles.</p>
+  </div>
+</section>
+
+<section class="grid">
+  <div class="card">
+    <div class="card-header">
+      <h2>Registro de solicitud</h2>
+      <p class="subtitle">Concentre datos clave en una sola captura.</p>
+    </div>
+    <form method="post" action="{{ url_for('solicitar') }}" class="form-sections">
+      {% if error %}
+      <div class="alert full">{{ error }}</div>
+      {% endif %}
+
+      <fieldset class="form-section">
+        <legend>Solicitud</legend>
+        <label>
+          Fecha
+          <input type="date" name="fecha_solicitud" value="{{ today }}" required>
+        </label>
+        <label>
+          Direccion solicitante (ente)
+          <select name="ente" required>
+            {% for ente in entes %}
+            <option value="{{ ente.clave }}">{{ ente.siglas or ente.nombre }} · {{ ente.nombre }}{% if ente.direccion %} · {{ ente.direccion }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Tipo de notificacion
+          <select name="tipo_notificacion_id" required>
+            {% for notificacion in notificaciones %}
+            <option value="{{ notificacion.id }}">{{ notificacion.nombre }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <legend>Unidad</legend>
+        <label class="full">
+          Vehiculo asignado
+          <select name="item_id" required>
+            {% for item in items %}
+            <option value="{{ item.id }}">[{{ item.sigla }}] {{ item.nombre }} · Disp. {{ item.stock_disponible }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="full">
+          Placa de la unidad
+          <select name="vehiculo_id" id="vehiculo_id" required>
+            {% if vehiculos %}
+              {% for vehiculo in vehiculos %}
+              <option value="{{ vehiculo.id }}" data-marca="{{ vehiculo.marca }}" data-modelo="{{ vehiculo.modelo }}">{{ vehiculo.placa }} · {{ vehiculo.modelo }}</option>
+              {% endfor %}
+            {% else %}
+              <option value="" disabled selected>No hay placas registradas</option>
+            {% endif %}
+          </select>
+        </label>
+        <label>
+          Marca
+          <input type="text" name="marca" id="marca_unidad" value="{% if vehiculos %}{{ vehiculos[0].marca }}{% endif %}" readonly required>
+        </label>
+        <label>
+          Modelo
+          <input type="text" name="modelo" id="modelo_unidad" value="{% if vehiculos %}{{ vehiculos[0].modelo }}{% endif %}" readonly required>
+        </label>
+        <label class="full">
+          Responsable del vehiculo
+          <select name="responsable_id" required>
+            {% for responsable in responsables %}
+            <option value="{{ responsable.id }}">{{ responsable.nombre }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          No. de pasajeros
+          <input type="number" name="no_pasajeros" min="1" max="10" required>
+        </label>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <legend>Personal</legend>
+        <label>
+          Nombre del resguardante
+          <input type="text" name="resguardante_nombre" required>
+        </label>
+        <label class="full">
+          Auditores asignados
+          <select name="auditores_ids" multiple size="4" required>
+            {% for auditor in auditores %}
+            <option value="{{ auditor.id }}">{{ auditor.nombre }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <legend>Ruta y motivo</legend>
+        <label class="full">
+          Ruta - destinos
+          <textarea name="ruta_destino" rows="2" required></textarea>
+          <p class="hint">Los destinos deben ingresarse en orden.</p>
+        </label>
+        <label class="full">
+          Motivo de salida
+          <textarea name="motivo_salida" rows="2" required></textarea>
+        </label>
+        <label class="full">
+          Observaciones
+          <textarea name="observaciones" rows="3" placeholder="Notas adicionales"></textarea>
+        </label>
+      </fieldset>
+
+      <div class="actions full">
+        <button class="btn primary" type="submit">Registrar solicitud y generar reporte</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Vehiculos disponibles</h2>
+    <p class="subtitle">Unidades listas para asignacion inmediata.</p>
+    {% if items %}
+    <div class="table table-3">
+      <div class="table-row header">
+        <span>Sigla</span>
+        <span>Vehiculo</span>
+        <span>Disponible</span>
+      </div>
+      {% for item in items %}
+      <div class="table-row">
+        <span class="mono">{{ item.sigla }}</span>
+        <span>{{ item.nombre }}</span>
+        <span>{{ item.stock_disponible }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No hay vehiculos registrados.</p>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+  const vehiculoSelect = document.getElementById("vehiculo_id");
+  const marcaInput = document.getElementById("marca_unidad");
+  const modeloInput = document.getElementById("modelo_unidad");
+
+  const actualizarVehiculo = () => {
+    const selected = vehiculoSelect?.selectedOptions?.[0];
+    if (!selected) {
+      return;
+    }
+    marcaInput.value = selected.dataset.marca || "";
+    modeloInput.value = selected.dataset.modelo || "";
+  };
+
+  if (vehiculoSelect) {
+    vehiculoSelect.addEventListener("change", actualizarVehiculo);
+    actualizarVehiculo();
+  }
+</script>
+
+{% endblock %}

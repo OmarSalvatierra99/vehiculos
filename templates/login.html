@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Acceso · Vehiculos OFS{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div>
+    <h2>Acceso institucional</h2>
+    <p>Ingrese con sus credenciales para gestionar solicitudes y movimientos.</p>
+  </div>
+  <div class="card login-card">
+    <form method="post" class="form">
+      <label>
+        Usuario
+        <input type="text" name="usuario" required autocomplete="username">
+      </label>
+      <label>
+        Clave
+        <input type="password" name="clave" required autocomplete="current-password">
+      </label>
+      {% if error %}
+      <div class="alert">{{ error }}</div>
+      {% endif %}
+      <button class="btn primary" type="submit">Ingresar</button>
+    </form>
+    <p class="hint">Para soporte, contacte al area de TI institucional.</p>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}REPORTE · VEHICULOS{% endblock %}
+
+{% block content %}
+<section class="card report">
+  <div class="report-header">
+    <h2>Solicitud de unidades</h2>
+    <p class="subtitle">Salida programada: {{ fecha_larga }}</p>
+  </div>
+  {% if can_print %}
+  <div class="actions">
+    <button class="btn primary" type="button" onclick="window.print()">Imprimir reporte</button>
+  </div>
+  {% else %}
+  <div class="alert">Solo el responsable del vehiculo puede imprimir este reporte.</div>
+  {% endif %}
+
+  <div class="report-grid">
+    <div class="report-block">
+      <span class="report-label">Ente solicitante</span>
+      <strong>{{ movimiento.ente_siglas or movimiento.ente_nombre or movimiento.ente_clave }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Direccion del ente solicitante</span>
+      <strong>{{ movimiento.ente_direccion or "No registrada" }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Vehiculo solicitado</span>
+      <strong>[{{ movimiento.sigla }}] {{ movimiento.item_nombre }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Tipo de notificacion</span>
+      <strong>{{ movimiento.tipo_notificacion or "No registrada" }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Cantidad</span>
+      <strong>{{ movimiento.cantidad }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Nombre del resguardante</span>
+      <strong>{{ movimiento.resguardante_nombre }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Placa de la unidad</span>
+      <strong>{{ movimiento.placa_unidad }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Marca</span>
+      <strong>{{ movimiento.marca }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Modelo</span>
+      <strong>{{ movimiento.modelo }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">Responsable del vehiculo</span>
+      <strong>{{ movimiento.responsable_vehiculo }}</strong>
+    </div>
+    <div class="report-block">
+      <span class="report-label">No. de pasajeros</span>
+      <strong>{{ movimiento.no_pasajeros }}</strong>
+    </div>
+    <div class="report-block full">
+      <span class="report-label">Nombres de los auditores</span>
+      <strong>{{ movimiento.auditores_nombres }}</strong>
+    </div>
+    <div class="report-block full">
+      <span class="report-label">Ruta - destinos</span>
+      <strong>{{ movimiento.ruta_destino }}</strong>
+    </div>
+    <div class="report-block full">
+      <span class="report-label">Motivo de salida</span>
+      <strong>{{ movimiento.motivo_salida }}</strong>
+    </div>
+  </div>
+
+  <div class="report-note">
+    Maximo 5 ocupantes en vehiculo oficial.
+  </div>
+
+  <div class="signature">
+    <span class="report-label">Autorizacion del director</span>
+    <div class="signature-line"></div>
+  </div>
+</section>
+{% endblock %}

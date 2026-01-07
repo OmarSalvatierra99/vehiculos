@@ -1,0 +1,63 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# AI agents
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.cursorrules
+.cursor/
+.aider*
+*.aider*
+*.gemini*
+*.claude*
+
+# Virtual env
+venv/
+.venv/
+env/
+.env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Flask
+instance/
+*.db
+*.sqlite*
+*.log
+*.pid
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Temp
+tmp/
+temp/
+*.tmp
+*~
+*.bak
+
+# Logs
+logs/
+*.log

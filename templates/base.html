@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Vehiculos OFS{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  </head>
+  <body>
+    <div class="page">
+      <header class="gov-header">
+        <div class="brand">
+          <div class="seal">OFS</div>
+          <div>
+            <h1>Sistema de Vehiculos</h1>
+            <p>Control institucional de unidades asignadas a auditoria</p>
+          </div>
+        </div>
+        {% if session.get('autenticado') %}
+        <div class="user-area">
+          <div class="user-chip">
+            <span class="user-name">{{ session.get('nombre') }}</span>
+            <span class="user-role">{{ session.get('rol')|upper }}</span>
+          </div>
+          <nav class="nav-links">
+            {% if session.get('rol') == 'gestor' %}
+            <a href="{{ url_for('gestor') }}">Gestor</a>
+            {% elif session.get('rol') == 'monitor' %}
+            <a href="{{ url_for('monitoreo') }}">Monitoreo</a>
+            {% else %}
+            <a href="{{ url_for('dashboard') }}">Panel</a>
+            {% endif %}
+            <a href="{{ url_for('logout') }}">Salir</a>
+          </nav>
+        </div>
+        {% endif %}
+      </header>
+
+      <main class="content">
+        <div class="content-inner">
+          {% block content %}{% endblock %}
+        </div>
+      </main>
+
+      <footer class="footer">
+        <span>Organismo de Fiscalizacion Superior · Vehiculos</span>
+        <span>Uso interno para auditoria</span>
+      </footer>
+    </div>
+  </body>
+</html>

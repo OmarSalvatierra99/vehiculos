@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Monitoreo · Vehiculos{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Monitoreo de vehiculos</h2>
+    <p>Vista general de unidades disponibles y movimientos activos.</p>
+  </div>
+</section>
+
+<section class="grid">
+  <div class="card">
+    <h2>Vehiculos disponibles</h2>
+    <p class="subtitle">Unidades listas para asignacion inmediata.</p>
+    {% if items %}
+    <div class="table table-3">
+      <div class="table-row header">
+        <span>Sigla</span>
+        <span>Vehiculo</span>
+        <span>Disponible</span>
+      </div>
+      {% for item in items %}
+      <div class="table-row">
+        <span class="mono">{{ item.sigla }}</span>
+        <span>{{ item.nombre }}</span>
+        <span>{{ item.stock_disponible }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No hay vehiculos registrados.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Movimientos recientes</h2>
+    <p class="subtitle">Seguimiento de solicitudes y entregas.</p>
+    {% if movimientos %}
+    <div class="table table-6">
+      <div class="table-row header">
+        <span>Folio</span>
+        <span>Unidad</span>
+        <span>Ente</span>
+        <span>Solicitud</span>
+        <span>Entrega</span>
+        <span>Estatus</span>
+      </div>
+      {% for mov in movimientos %}
+      <div class="table-row">
+        <span class="mono">{{ mov.data.folio }}</span>
+        <span>[{{ mov.data.sigla }}] {{ mov.data.item_nombre }}</span>
+        <span>{{ mov.data.ente_siglas or mov.data.ente_nombre or mov.data.ente_clave }}</span>
+        <span>{{ mov.data.fecha_solicitud }}</span>
+        <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>
+        <span>
+          {% if mov.data.devuelto %}
+            Devuelto
+          {% elif mov.alerta %}
+            Alerta +7 dias
+          {% elif mov.data.fecha_entrega %}
+            En uso
+          {% else %}
+            Pendiente
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">Sin movimientos registrados.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
