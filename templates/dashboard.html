@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Panel del Usuario · Vehiculos{% endblock %}
+{% block title %}Panel del usuario · Inventario vehicular{% endblock %}
 
 {% block content %}
 <section class="page-header">
   <div>
     <h2>Solicitud de unidades</h2>
-    <p>Capture la salida y gestione la asignacion de vehiculos disponibles.</p>
+    <p>Complete el formulario oficial para registrar la salida de una unidad.</p>
   </div>
 </section>
 
@@ -22,39 +22,7 @@
       {% endif %}
 
       <fieldset class="form-section">
-        <legend>Solicitud</legend>
-        <label>
-          Fecha
-          <input type="date" name="fecha_solicitud" value="{{ today }}" required>
-        </label>
-        <label>
-          Direccion solicitante (ente)
-          <select name="ente" required>
-            {% for ente in entes %}
-            <option value="{{ ente.clave }}">{{ ente.siglas or ente.nombre }} · {{ ente.nombre }}{% if ente.direccion %} · {{ ente.direccion }}{% endif %}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          Tipo de notificacion
-          <select name="tipo_notificacion_id" required>
-            {% for notificacion in notificaciones %}
-            <option value="{{ notificacion.id }}">{{ notificacion.nombre }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </fieldset>
-
-      <fieldset class="form-section">
         <legend>Unidad</legend>
-        <label class="full">
-          Vehiculo asignado
-          <select name="item_id" required>
-            {% for item in items %}
-            <option value="{{ item.id }}">[{{ item.sigla }}] {{ item.nombre }} · Disp. {{ item.stock_disponible }}</option>
-            {% endfor %}
-          </select>
-        </label>
         <label class="full">
           Placa de la unidad
           <select name="vehiculo_id" id="vehiculo_id" required>
@@ -91,12 +59,12 @@
 
       <fieldset class="form-section">
         <legend>Personal</legend>
-        <label>
-          Nombre del resguardante
-          <input type="text" name="resguardante_nombre" required>
+        <label class="full">
+          Personal solicitante
+          <input type="text" name="personal_nombre" id="personal_nombre" placeholder="Nombre completo" required>
         </label>
         <label class="full">
-          Auditores asignados
+          Nombre de los auditores
           <select name="auditores_ids" multiple size="4" required>
             {% for auditor in auditores %}
             <option value="{{ auditor.id }}">{{ auditor.nombre }}</option>
@@ -108,17 +76,34 @@
       <fieldset class="form-section">
         <legend>Ruta y motivo</legend>
         <label class="full">
+          Buscar ente destino
+          <input type="text" id="ruta_busqueda" list="ruta_entes" placeholder="Escriba clave o nombre del ente">
+          <datalist id="ruta_entes">
+            <option value="TLAXCALA" label="Tlaxcala"></option>
+            <option value="VARIOS" label="Varios"></option>
+            {% for ente in entes_ruta %}
+            <option value="{{ ente.clave }}" label="{{ ente.siglas or ente.nombre }} · {{ ente.nombre }}{% if ente.direccion %} · {{ ente.direccion }}{% endif %}"></option>
+            {% endfor %}
+          </datalist>
+          <p class="hint">Seleccione un ente y se agregara a la ruta de destinos.</p>
+        </label>
+        <label class="full">
           Ruta - destinos
-          <textarea name="ruta_destino" rows="2" required></textarea>
-          <p class="hint">Los destinos deben ingresarse en orden.</p>
+          <select name="ruta_destinos" multiple size="5" required>
+            <option value="TLAXCALA">Tlaxcala</option>
+            <option value="VARIOS">Varios</option>
+            {% for ente in entes_ruta %}
+            <option value="{{ ente.clave }}">{{ ente.siglas or ente.nombre }} · {{ ente.nombre }}{% if ente.direccion %} · {{ ente.direccion }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          <p class="hint">Seleccione los entes destino en el orden de la lista.</p>
         </label>
         <label class="full">
           Motivo de salida
-          <textarea name="motivo_salida" rows="2" required></textarea>
-        </label>
-        <label class="full">
-          Observaciones
-          <textarea name="observaciones" rows="3" placeholder="Notas adicionales"></textarea>
+          <select name="motivo_salida" required>
+            <option value="Notificación de oficio">Notificación de oficio</option>
+            <option value="Revision de auditoria">Revision de auditoria</option>
+          </select>
         </label>
       </fieldset>
 
@@ -126,36 +111,14 @@
         <button class="btn primary" type="submit">Registrar solicitud y generar reporte</button>
       </div>
     </form>
-  </div>
-
-  <div class="card">
-    <h2>Vehiculos disponibles</h2>
-    <p class="subtitle">Unidades listas para asignacion inmediata.</p>
-    {% if items %}
-    <div class="table table-3">
-      <div class="table-row header">
-        <span>Sigla</span>
-        <span>Vehiculo</span>
-        <span>Disponible</span>
-      </div>
-      {% for item in items %}
-      <div class="table-row">
-        <span class="mono">{{ item.sigla }}</span>
-        <span>{{ item.nombre }}</span>
-        <span>{{ item.stock_disponible }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty">No hay vehiculos registrados.</p>
-    {% endif %}
-  </div>
 </section>
 
 <script>
   const vehiculoSelect = document.getElementById("vehiculo_id");
   const marcaInput = document.getElementById("marca_unidad");
   const modeloInput = document.getElementById("modelo_unidad");
+  const rutaBusqueda = document.getElementById("ruta_busqueda");
+  const rutaSelect = document.querySelector("select[name='ruta_destinos']");
 
   const actualizarVehiculo = () => {
     const selected = vehiculoSelect?.selectedOptions?.[0];
@@ -169,6 +132,33 @@
   if (vehiculoSelect) {
     vehiculoSelect.addEventListener("change", actualizarVehiculo);
     actualizarVehiculo();
+  }
+
+  const agregarDestino = () => {
+    if (!rutaBusqueda || !rutaSelect) {
+      return;
+    }
+    const value = rutaBusqueda.value.trim();
+    if (!value) {
+      return;
+    }
+    const match = Array.from(rutaSelect.options).find(
+      (option) => option.value.toUpperCase() === value.toUpperCase(),
+    );
+    if (match) {
+      match.selected = true;
+    }
+    rutaBusqueda.value = "";
+  };
+
+  if (rutaBusqueda) {
+    rutaBusqueda.addEventListener("change", agregarDestino);
+    rutaBusqueda.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        agregarDestino();
+      }
+    });
   }
 </script>
 

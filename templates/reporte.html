@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}REPORTE · VEHICULOS{% endblock %}
+{% block title %}REPORTE · INVENTARIO VEHICULAR{% endblock %}
 
 {% block content %}
 <section class="card report">
@@ -13,7 +13,7 @@
     <button class="btn primary" type="button" onclick="window.print()">Imprimir reporte</button>
   </div>
   {% else %}
-  <div class="alert">Solo el responsable del vehiculo puede imprimir este reporte.</div>
+  <div class="alert">Solo el administrador puede imprimir este reporte.</div>
   {% endif %}
 
   <div class="report-grid">
@@ -38,10 +38,6 @@
       <strong>{{ movimiento.cantidad }}</strong>
     </div>
     <div class="report-block">
-      <span class="report-label">Nombre del resguardante</span>
-      <strong>{{ movimiento.resguardante_nombre }}</strong>
-    </div>
-    <div class="report-block">
       <span class="report-label">Placa de la unidad</span>
       <strong>{{ movimiento.placa_unidad }}</strong>
     </div>
@@ -60,6 +56,10 @@
     <div class="report-block">
       <span class="report-label">No. de pasajeros</span>
       <strong>{{ movimiento.no_pasajeros }}</strong>
+    </div>
+    <div class="report-block full">
+      <span class="report-label">Personal solicitante</span>
+      <strong>{{ movimiento.resguardante_nombre or "No registrado" }}</strong>
     </div>
     <div class="report-block full">
       <span class="report-label">Nombres de los auditores</span>

@@ -176,6 +176,15 @@ class DatabaseManager:
                 FOREIGN KEY(auditor_id) REFERENCES auditores(id)
             );
 
+            CREATE TABLE IF NOT EXISTS movimientos_destinos (
+                movimiento_id INTEGER NOT NULL,
+                ente_clave TEXT NOT NULL,
+                orden INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (movimiento_id, ente_clave, orden),
+                FOREIGN KEY(movimiento_id) REFERENCES movimientos(id),
+                FOREIGN KEY(ente_clave) REFERENCES entes(clave)
+            );
+
             CREATE TABLE IF NOT EXISTS movimientos_eventos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 movimiento_id INTEGER NOT NULL,
@@ -184,6 +193,14 @@ class DatabaseManager:
                 fecha TEXT NOT NULL,
                 notas TEXT,
                 FOREIGN KEY(movimiento_id) REFERENCES movimientos(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS usuarios_vehiculos (
+                usuario_id INTEGER NOT NULL,
+                vehiculo_id INTEGER NOT NULL,
+                PRIMARY KEY (usuario_id, vehiculo_id),
+                FOREIGN KEY(usuario_id) REFERENCES usuarios(id),
+                FOREIGN KEY(vehiculo_id) REFERENCES vehiculos(id)
             );
         """)
         conn.commit()
@@ -349,12 +366,12 @@ class DatabaseManager:
 
                 clave_txt = str(clave).strip() if clave else f"{usuario}2025"
                 rol_txt = str(rol).strip().lower() if rol else "usuario"
-                if "gestor" in rol_txt or "admin" in rol_txt:
-                    rol_txt = "gestor"
-                elif "monitor" in rol_txt:
-                    rol_txt = "monitor"
-                elif rol_txt not in {"gestor", "usuario", "monitor"}:
-                    rol_txt = "usuario"
+                if "gestor" in rol_txt or "admin" in rol_txt or "monitor" in rol_txt:
+                    rol_txt = "admin"
+                elif "usuario" in rol_txt or "user" in rol_txt:
+                    rol_txt = "user"
+                elif rol_txt not in {"admin", "user"}:
+                    rol_txt = "user"
 
                 entes_txt = str(entes).strip().upper() if entes else "TODOS"
                 usuarios.append((
@@ -367,9 +384,8 @@ class DatabaseManager:
 
         if not usuarios:
             usuarios = [
-                ("Gestor Inventario", "gestor", _hash_password("gestor5010"), "gestor", "TODOS"),
-                ("Usuario Auditor", "usuario", _hash_password("usuario5010"), "usuario", "TODOS"),
-                ("Monitor Vehicular", "monitor", _hash_password("monitor5010"), "monitor", "TODOS"),
+                ("Administrador Inventario", "admin", _hash_password("admin5010"), "admin", "TODOS"),
+                ("Usuario Auditor", "usuario", _hash_password("usuario5010"), "user", "TODOS"),
             ]
             logger.warning("Usuarios base creados; cambie las claves por seguridad.")
 
@@ -567,15 +583,34 @@ class DatabaseManager:
         conn.close()
         return data
 
-    def listar_vehiculos(self) -> List[Dict]:
+    def listar_vehiculos(self, usuario_id: Optional[int] = None) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT id, placa, modelo, marca
-            FROM vehiculos
-            WHERE activo=1
-            ORDER BY placa
-        """)
+        if usuario_id:
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM usuarios_vehiculos
+                WHERE usuario_id=?
+            """, (usuario_id,))
+            tiene_relacion = cur.fetchone()["total"] > 0
+        else:
+            tiene_relacion = False
+
+        if usuario_id and tiene_relacion:
+            cur.execute("""
+                SELECT v.id, v.placa, v.modelo, v.marca
+                FROM vehiculos v
+                JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
+                WHERE v.activo=1 AND uv.usuario_id=?
+                ORDER BY v.placa
+            """, (usuario_id,))
+        else:
+            cur.execute("""
+                SELECT id, placa, modelo, marca
+                FROM vehiculos
+                WHERE activo=1
+                ORDER BY placa
+            """)
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
         return data
@@ -671,18 +706,17 @@ class DatabaseManager:
         responsable_id: int,
         no_pasajeros: int,
         auditores_ids: List[int],
-        ruta_destino: str,
+        ruta_destinos: List[str],
         motivo_salida: str,
         tipo_notificacion_id: int,
         fecha_solicitud: Optional[str] = None,
     ) -> Tuple[bool, Dict]:
         requeridos = [
-            ("resguardante", resguardante_nombre),
             ("vehiculo", vehiculo_id),
             ("responsable", responsable_id),
             ("pasajeros", no_pasajeros),
             ("auditores", auditores_ids),
-            ("ruta", ruta_destino),
+            ("ruta", ruta_destinos),
             ("motivo", motivo_salida),
             ("notificacion", tipo_notificacion_id),
         ]
@@ -737,7 +771,24 @@ class DatabaseManager:
         if len(auditores) != len(set(auditores_ids)):
             conn.close()
             return False, {"mensaje": "Auditores no encontrados."}
-        auditores_nombres = ", ".join([row["nombre"] for row in auditores])
+
+        destinos = [clave.strip().upper() for clave in ruta_destinos if clave and clave.strip()]
+        if not destinos:
+            conn.close()
+            return False, {"mensaje": "Falta el dato de ruta."}
+        extras = {"TLAXCALA", "VARIOS"}
+        destinos_catalogo = [destino for destino in destinos if destino not in extras]
+        if destinos_catalogo:
+            placeholders_dest = ",".join(["?"] * len(destinos_catalogo))
+            cur.execute(f"""
+                SELECT clave
+                FROM entes
+                WHERE clave IN ({placeholders_dest}) AND activo=1
+            """, destinos_catalogo)
+            entes_validos = {row["clave"] for row in cur.fetchall()}
+            if entes_validos != set(destinos_catalogo):
+                conn.close()
+                return False, {"mensaje": "Destinos no encontrados en catalogo de entes."}
         cur.execute("""
             SELECT id, no_inventario
             FROM inventario_items
@@ -755,10 +806,9 @@ class DatabaseManager:
             INSERT INTO movimientos (
                 folio, item_id, usuario_id, ente_clave, fecha_solicitud,
                 cantidad, receptor_nombre, firma_recepcion, no_inventario, observaciones,
-                resguardante_nombre, placa_unidad, marca, modelo, responsable_vehiculo,
-                vehiculo_id, responsable_id, tipo_notificacion_id, no_pasajeros,
-                auditores_nombres, ruta_destino, motivo_salida
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                resguardante_nombre, vehiculo_id, responsable_id,
+                tipo_notificacion_id, no_pasajeros, motivo_salida
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             folio,
             item_id,
@@ -771,16 +821,10 @@ class DatabaseManager:
             item["no_inventario"],
             observaciones.strip() if observaciones else None,
             resguardante_nombre.strip(),
-            vehiculo["placa"].strip(),
-            vehiculo["marca"].strip(),
-            vehiculo["modelo"].strip(),
-            responsable["nombre"].strip(),
             vehiculo["id"],
             responsable["id"],
             notificacion["id"],
             int(no_pasajeros),
-            auditores_nombres.strip(),
-            ruta_destino.strip(),
             motivo_salida.strip(),
         ))
 
@@ -790,6 +834,14 @@ class DatabaseManager:
                 INSERT INTO movimientos_auditores (movimiento_id, auditor_id)
                 VALUES (?, ?)
             """, [(movimiento_id, auditor_id) for auditor_id in auditores_ids])
+        if destinos:
+            cur.executemany("""
+                INSERT INTO movimientos_destinos (movimiento_id, ente_clave, orden)
+                VALUES (?, ?, ?)
+            """, [
+                (movimiento_id, clave, orden)
+                for orden, clave in enumerate(destinos, start=1)
+            ])
         self._registrar_evento(cur, movimiento_id, usuario_id, "SOLICITADO", "")
         conn.commit()
         conn.close()
@@ -803,9 +855,31 @@ class DatabaseManager:
                    m.fecha_entrega, m.fecha_devolucion, m.cantidad,
                    m.receptor_nombre, m.firma_recepcion, m.no_inventario,
                    m.devuelto, m.observaciones, m.resguardante_nombre,
-                   m.placa_unidad, m.marca, m.modelo, m.responsable_vehiculo,
+                   v.placa AS placa_unidad, v.marca, v.modelo,
+                   r.nombre AS responsable_vehiculo,
                    m.vehiculo_id, m.responsable_id, m.tipo_notificacion_id,
-                   m.no_pasajeros, m.auditores_nombres, m.ruta_destino, m.motivo_salida,
+                   m.no_pasajeros,
+                   COALESCE((
+                       SELECT group_concat(nombre, ', ')
+                       FROM (
+                           SELECT a.nombre AS nombre
+                           FROM movimientos_auditores ma
+                           JOIN auditores a ON a.id = ma.auditor_id
+                           WHERE ma.movimiento_id = m.id
+                           ORDER BY a.nombre
+                       )
+                   ), m.auditores_nombres) AS auditores_nombres,
+                   COALESCE((
+                       SELECT group_concat(destino, ' -> ')
+                       FROM (
+                           SELECT COALESCE(e2.siglas, e2.nombre, md.ente_clave) AS destino
+                           FROM movimientos_destinos md
+                           LEFT JOIN entes e2 ON e2.clave = md.ente_clave
+                           WHERE md.movimiento_id = m.id
+                           ORDER BY md.orden
+                       )
+                   ), m.ruta_destino) AS ruta_destino,
+                   m.motivo_salida,
                    e.nombre AS ente_nombre, e.siglas AS ente_siglas,
                    i.sigla, i.nombre AS item_nombre, i.categoria,
                    n.nombre AS tipo_notificacion,
@@ -815,6 +889,8 @@ class DatabaseManager:
             JOIN usuarios u ON u.id = m.usuario_id
             LEFT JOIN entes e ON e.clave = m.ente_clave
             LEFT JOIN notificaciones n ON n.id = m.tipo_notificacion_id
+            LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
+            LEFT JOIN responsables r ON r.id = m.responsable_id
         """
         params = ()
         if usuario_id:
@@ -834,9 +910,31 @@ class DatabaseManager:
                    m.fecha_entrega, m.fecha_devolucion, m.cantidad,
                    m.receptor_nombre, m.firma_recepcion, m.no_inventario,
                    m.devuelto, m.observaciones, m.resguardante_nombre,
-                   m.placa_unidad, m.marca, m.modelo, m.responsable_vehiculo,
+                   v.placa AS placa_unidad, v.marca, v.modelo,
+                   r.nombre AS responsable_vehiculo,
                    m.vehiculo_id, m.responsable_id, m.tipo_notificacion_id,
-                   m.no_pasajeros, m.auditores_nombres, m.ruta_destino, m.motivo_salida,
+                   m.no_pasajeros,
+                   COALESCE((
+                       SELECT group_concat(nombre, ', ')
+                       FROM (
+                           SELECT a.nombre AS nombre
+                           FROM movimientos_auditores ma
+                           JOIN auditores a ON a.id = ma.auditor_id
+                           WHERE ma.movimiento_id = m.id
+                           ORDER BY a.nombre
+                       )
+                   ), m.auditores_nombres) AS auditores_nombres,
+                   COALESCE((
+                       SELECT group_concat(destino, ' -> ')
+                       FROM (
+                           SELECT COALESCE(e2.siglas, e2.nombre, md.ente_clave) AS destino
+                           FROM movimientos_destinos md
+                           LEFT JOIN entes e2 ON e2.clave = md.ente_clave
+                           WHERE md.movimiento_id = m.id
+                           ORDER BY md.orden
+                       )
+                   ), m.ruta_destino) AS ruta_destino,
+                   m.motivo_salida,
                    i.sigla, i.nombre AS item_nombre, i.categoria,
                    u.nombre AS usuario_nombre,
                    e.nombre AS ente_nombre, e.siglas AS ente_siglas,
@@ -847,6 +945,8 @@ class DatabaseManager:
             JOIN usuarios u ON u.id = m.usuario_id
             LEFT JOIN entes e ON e.clave = m.ente_clave
             LEFT JOIN notificaciones n ON n.id = m.tipo_notificacion_id
+            LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
+            LEFT JOIN responsables r ON r.id = m.responsable_id
             WHERE m.id=?
             LIMIT 1
         """, (movimiento_id,))

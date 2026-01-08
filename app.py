@@ -143,14 +143,31 @@ def _filtrar_vehiculos(items: List[dict]) -> List[dict]:
     return [item for item in items if item.get("categoria") == "VEHICULO"]
 
 
+def _normalizar_rol(rol: str) -> str:
+    rol_txt = (rol or "").strip().lower()
+    if rol_txt in {"gestor", "monitor", "admin", "administrador"}:
+        return "admin"
+    if rol_txt in {"usuario", "user"}:
+        return "user"
+    return "user"
+
+
 def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id: int) -> dict:
     items = _filtrar_vehiculos(db_manager.listar_items())
-    vehiculos = db_manager.listar_vehiculos()
+    item_siglas = {(item.get("sigla") or "").upper() for item in items}
+    vehiculos = db_manager.listar_vehiculos(usuario_id=usuario_id)
+    if item_siglas:
+        vehiculos = [
+            vehiculo
+            for vehiculo in vehiculos
+            if (vehiculo.get("placa") or "").upper() in item_siglas
+        ]
     responsables = db_manager.listar_responsables()
     auditores = db_manager.listar_auditores()
     notificaciones = db_manager.listar_notificaciones()
     movimientos = db_manager.listar_movimientos(usuario_id=usuario_id)
     entes = _filtrar_entes(db_manager.listar_entes(), session.get("entes", []))
+    entes_ruta = db_manager.listar_entes()
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
         app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
@@ -162,7 +179,43 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
         "auditores": auditores,
         "notificaciones": notificaciones,
         "entes": entes,
+        "entes_ruta": entes_ruta,
         "movimientos": alertas,
+        "today": date.today().isoformat(),
+    }
+
+
+def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
+    items = _filtrar_vehiculos(db_manager.listar_items(activos=False))
+    movimientos = db_manager.listar_movimientos()
+    alertas = db_manager.movimientos_con_alerta(
+        movimientos,
+        app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
+    )
+    vehiculos = db_manager.listar_vehiculos()
+    responsables = db_manager.listar_responsables()
+    auditores = db_manager.listar_auditores()
+    total_stock = sum(int(item.get("stock_total") or 0) for item in items)
+    total_disponible = sum(int(item.get("stock_disponible") or 0) for item in items)
+    en_uso = sum(
+        1
+        for mov in alertas
+        if mov.data.get("fecha_entrega") and not mov.data.get("devuelto")
+    )
+    pendientes = sum(1 for mov in alertas if not mov.data.get("fecha_entrega"))
+    total_alertas = sum(1 for mov in alertas if mov.alerta)
+    return {
+        "items": items,
+        "movimientos": alertas,
+        "vehiculos": vehiculos,
+        "responsables": responsables,
+        "auditores": auditores,
+        "total_stock": total_stock,
+        "total_disponible": total_disponible,
+        "total_vehiculos": len(vehiculos),
+        "movimientos_en_uso": en_uso,
+        "movimientos_pendientes": pendientes,
+        "movimientos_alerta": total_alertas,
         "today": date.today().isoformat(),
     }
 
@@ -196,21 +249,17 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             if not user:
                 return render_template("login.html", error="Credenciales inválidas")
 
+            rol = _normalizar_rol(user["rol"])
             session.update({
                 "usuario_id": user["id"],
                 "usuario": user["usuario"],
                 "nombre": user["nombre"],
-                "rol": user["rol"],
+                "rol": rol,
                 "entes": user["entes"],
                 "autenticado": True,
             })
 
-            if user["rol"] == "gestor":
-                destino = "gestor"
-            elif user["rol"] == "monitor":
-                destino = "monitoreo"
-            else:
-                destino = "dashboard"
+            destino = "admin" if rol == "admin" else "dashboard"
             return redirect(url_for(destino))
         return render_template("login.html")
 
@@ -225,58 +274,102 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/dashboard")
     def dashboard():
-        if session.get("rol") == "gestor":
-            return redirect(url_for("gestor"))
-        if session.get("rol") == "monitor":
-            return redirect(url_for("monitoreo"))
+        if session.get("rol") == "admin":
+            return redirect(url_for("admin"))
 
         context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
         return render_template("dashboard.html", usuario=session.get("nombre"), **context)
 
+    @app.route("/admin")
+    def admin():
+        if session.get("rol") != "admin":
+            return redirect(url_for("dashboard"))
+        context = _build_admin_context(app, db_manager)
+        return render_template("admin.html", usuario=session.get("nombre"), **context)
+
     @app.route("/monitoreo")
     def monitoreo():
-        if session.get("rol") == "gestor":
-            return redirect(url_for("gestor"))
-        if session.get("rol") != "monitor":
-            return redirect(url_for("dashboard"))
-        context = _build_monitor_context(app, db_manager)
-        return render_template("monitor.html", usuario=session.get("nombre"), **context)
+        return redirect(url_for("admin"))
 
     @app.route("/solicitar", methods=["POST"])
     def solicitar():
         if not session.get("autenticado"):
             return redirect(url_for("login"))
-        if session.get("rol") != "usuario":
+        if session.get("rol") != "user":
             return redirect(url_for("dashboard"))
 
         item_id = request.form.get("item_id")
         ente = request.form.get("ente")
         cantidad = request.form.get("cantidad") or "1"
-        resguardante = request.form.get("resguardante_nombre")
+        personal_nombre = request.form.get("personal_nombre", "").strip()
         vehiculo_id = request.form.get("vehiculo_id")
         responsable_id = request.form.get("responsable_id")
         no_pasajeros = request.form.get("no_pasajeros")
         auditores = request.form.getlist("auditores_ids")
-        ruta_destino = request.form.get("ruta_destino")
+        ruta_destinos = request.form.getlist("ruta_destinos")
         motivo = request.form.get("motivo_salida")
         tipo_notificacion_id = request.form.get("tipo_notificacion_id")
         observaciones = request.form.get("observaciones")
         fecha = request.form.get("fecha_solicitud")
+
+        if not personal_nombre:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="Falta el nombre del personal solicitante.",
+                **context,
+            )
+
+        if not ente:
+            entes = _filtrar_entes(db_manager.listar_entes(), session.get("entes", []))
+            if entes:
+                ente = entes[0].get("clave")
+
+        if not tipo_notificacion_id:
+            notificaciones = db_manager.listar_notificaciones()
+            if notificaciones:
+                tipo_notificacion_id = notificaciones[0].get("id")
+
+        if not item_id and vehiculo_id:
+            vehiculos = db_manager.listar_vehiculos(usuario_id=session.get("usuario_id"))
+            vehiculo = next(
+                (v for v in vehiculos if str(v.get("id")) == str(vehiculo_id)),
+                None,
+            )
+            if vehiculo:
+                items = _filtrar_vehiculos(db_manager.listar_items())
+                placa = (vehiculo.get("placa") or "").upper()
+                item = next(
+                    (i for i in items if (i.get("sigla") or "").upper() == placa),
+                    None,
+                )
+                if item:
+                    item_id = item.get("id")
+
+        if not item_id or not ente or not tipo_notificacion_id:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="Faltan datos requeridos para completar la solicitud.",
+                **context,
+            )
 
         ok, data = db_manager.crear_movimiento(
             int(item_id),
             session["usuario_id"],
             ente,
             int(cantidad),
-            resguardante or "",
+            personal_nombre or "",
             None,
             observaciones,
-            resguardante or "",
+            personal_nombre or "",
             int(vehiculo_id) if vehiculo_id else None,
             int(responsable_id) if responsable_id else None,
             int(no_pasajeros) if no_pasajeros else None,
             [int(auditor_id) for auditor_id in auditores if auditor_id],
-            ruta_destino or "",
+            [clave for clave in ruta_destinos if clave],
             motivo or "",
             int(tipo_notificacion_id) if tipo_notificacion_id else None,
             fecha_solicitud=fecha,
@@ -295,24 +388,11 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/gestor")
     def gestor():
-        if session.get("rol") != "gestor":
-            return redirect(url_for("dashboard"))
-        items = _filtrar_vehiculos(db_manager.listar_items(activos=False))
-        movimientos = db_manager.listar_movimientos()
-        alertas = db_manager.movimientos_con_alerta(
-            movimientos,
-            app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
-        )
-        return render_template(
-            "gestor.html",
-            items=items,
-            movimientos=alertas,
-            usuario=session.get("nombre"),
-        )
+        return redirect(url_for("admin"))
 
     @app.route("/inventario/nuevo", methods=["POST"])
     def inventario_nuevo():
-        if session.get("rol") != "gestor":
+        if session.get("rol") != "admin":
             return redirect(url_for("dashboard"))
 
         sigla = request.form.get("sigla")
@@ -338,28 +418,27 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
             )
             return render_template(
-                "gestor.html",
-                items=items,
-                movimientos=alertas,
+                "admin.html",
+                **_build_admin_context(app, db_manager),
                 usuario=session.get("nombre"),
                 error=mensaje,
             )
 
-        return redirect(url_for("gestor"))
+        return redirect(url_for("admin"))
 
     @app.route("/movimientos/<int:mov_id>/entregar", methods=["POST"])
     def movimientos_entregar(mov_id: int):
-        if session.get("rol") != "gestor":
+        if session.get("rol") != "admin":
             return redirect(url_for("dashboard"))
         db_manager.marcar_entregado(mov_id, session.get("usuario_id"))
-        return redirect(url_for("gestor"))
+        return redirect(url_for("admin"))
 
     @app.route("/movimientos/<int:mov_id>/devolver", methods=["POST"])
     def movimientos_devolver(mov_id: int):
-        if session.get("rol") != "gestor":
+        if session.get("rol") != "admin":
             return redirect(url_for("dashboard"))
         db_manager.marcar_devuelto(mov_id, session.get("usuario_id"))
-        return redirect(url_for("gestor"))
+        return redirect(url_for("admin"))
 
     @app.route("/health")
     def health_check():
@@ -375,9 +454,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         movimiento = db_manager.obtener_movimiento(mov_id)
         if not movimiento:
             return redirect(url_for("dashboard"))
-        responsable = (movimiento.get("responsable_vehiculo") or "").strip().lower()
-        usuario_nombre = (session.get("nombre") or "").strip().lower()
-        can_print = bool(responsable and usuario_nombre and responsable == usuario_nombre)
+        can_print = session.get("rol") == "admin"
         fecha_larga = _fecha_larga_es(movimiento.get("fecha_solicitud"))
         return render_template(
             "reporte.html",

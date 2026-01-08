@@ -3,35 +3,44 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Vehiculos OFS{% endblock %}</title>
+    <title>{% block title %}Inventario vehicular OFS{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   </head>
   <body>
     <div class="page">
+      <div class="gov-topbar">
+        <span>Organo de Fiscalizacion Superior del Estado de Tlaxcala</span>
+        <span>Departamento de Entes Estatales</span>
+      </div>
       <header class="gov-header">
         <div class="brand">
-          <div class="seal">OFS</div>
-          <div>
-            <h1>Sistema de Vehiculos</h1>
-            <p>Control institucional de unidades asignadas a auditoria</p>
+          <img class="brand-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="Organo de Fiscalizacion Superior del Estado de Tlaxcala">
+          <div class="brand-text">
+            <span class="brand-overline">Organo de Fiscalizacion Superior del Estado de Tlaxcala</span>
+            <h1>Sistema de Inventario Vehicular</h1>
+            <p>Departamento de Entes Estatales</p>
           </div>
         </div>
         {% if session.get('autenticado') %}
         <div class="user-area">
           <div class="user-chip">
             <span class="user-name">{{ session.get('nombre') }}</span>
-            <span class="user-role">{{ session.get('rol')|upper }}</span>
+            <span class="user-role">
+              {% if session.get('rol') == 'admin' %}
+                ADMINISTRADOR
+              {% else %}
+                USUARIO
+              {% endif %}
+            </span>
           </div>
           <nav class="nav-links">
-            {% if session.get('rol') == 'gestor' %}
-            <a href="{{ url_for('gestor') }}">Gestor</a>
-            {% elif session.get('rol') == 'monitor' %}
-            <a href="{{ url_for('monitoreo') }}">Monitoreo</a>
+            {% if session.get('rol') == 'admin' %}
+            <a href="{{ url_for('admin') }}">Administracion</a>
             {% else %}
-            <a href="{{ url_for('dashboard') }}">Panel</a>
+            <a href="{{ url_for('dashboard') }}">Solicitud</a>
             {% endif %}
             <a href="{{ url_for('logout') }}">Salir</a>
           </nav>
@@ -46,8 +55,8 @@
       </main>
 
       <footer class="footer">
-        <span>Organismo de Fiscalizacion Superior · Vehiculos</span>
-        <span>Uso interno para auditoria</span>
+        <span>Organo de Fiscalizacion Superior del Estado de Tlaxcala</span>
+        <span>Inventario vehicular institucional · Uso interno</span>
       </footer>
     </div>
   </body>

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Administracion · Inventario vehicular{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Panel administrativo</h2>
+    <p>Inventario completo, estatus de unidades y reportes oficiales.</p>
+  </div>
+  <div class="date-chip">
+    <span>Fecha de corte</span>
+    <strong>{{ today }}</strong>
+  </div>
+</section>
+
+<section class="stats-grid">
+  <div class="stat-card">
+    <span>Unidades registradas</span>
+    <strong>{{ total_vehiculos }}</strong>
+    <small>Placas activas</small>
+  </div>
+  <div class="stat-card">
+    <span>Inventario total</span>
+    <strong>{{ total_stock }}</strong>
+    <small>Unidades institucionales</small>
+  </div>
+  <div class="stat-card">
+    <span>Disponibles hoy</span>
+    <strong>{{ total_disponible }}</strong>
+    <small>Listas para asignacion</small>
+  </div>
+  <div class="stat-card">
+    <span>Movimientos activos</span>
+    <strong>{{ movimientos_en_uso }}</strong>
+    <small>{{ movimientos_alerta }} alertas</small>
+  </div>
+</section>
+
+<section class="grid">
+  <div class="card">
+    <div class="card-header">
+      <h2>Registro de unidades</h2>
+      <p class="subtitle">Alta de vehiculos en inventario institucional.</p>
+    </div>
+    <form method="post" action="{{ url_for('inventario_nuevo') }}" class="form-grid">
+      {% if error %}
+      <div class="alert full">{{ error }}</div>
+      {% endif %}
+      <label>
+        Sigla
+        <input type="text" name="sigla" required>
+      </label>
+      <input type="hidden" name="categoria" value="VEHICULO">
+      <label class="full">
+        Nombre del vehiculo
+        <input type="text" name="nombre" required>
+      </label>
+      <label>
+        No. de inventario
+        <input type="text" name="no_inventario">
+      </label>
+      <label>
+        Stock total
+        <input type="number" name="stock_total" min="0" value="1" required>
+      </label>
+      <label class="full">
+        Descripcion
+        <textarea name="descripcion" rows="3"></textarea>
+      </label>
+      <div class="actions full">
+        <button class="btn primary" type="submit">Registrar vehiculo</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Inventario por sigla</h2>
+    <p class="subtitle">Control de existencias por unidad oficial.</p>
+    {% if items %}
+    <div class="table table-4">
+      <div class="table-row header">
+        <span>Sigla</span>
+        <span>Vehiculo</span>
+        <span>Total</span>
+        <span>Disponible</span>
+      </div>
+      {% for item in items %}
+      <div class="table-row">
+        <span class="mono">{{ item.sigla }}</span>
+        <span>{{ item.nombre }}</span>
+        <span>{{ item.stock_total }}</span>
+        <span>{{ item.stock_disponible }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No hay unidades registradas.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="grid">
+  <div class="card">
+    <h2>Unidades registradas</h2>
+    <p class="subtitle">Relacion oficial de placas activas.</p>
+    {% if vehiculos %}
+    <div class="table table-3">
+      <div class="table-row header">
+        <span>Placa</span>
+        <span>Modelo</span>
+        <span>Marca</span>
+      </div>
+      {% for vehiculo in vehiculos %}
+      <div class="table-row">
+        <span class="mono">{{ vehiculo.placa }}</span>
+        <span>{{ vehiculo.modelo }}</span>
+        <span>{{ vehiculo.marca }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No hay placas registradas.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h2>Movimientos y reportes</h2>
+    <p class="subtitle">Seguimiento de estatus y generacion de reportes.</p>
+  </div>
+  {% if movimientos %}
+  <div class="table table-7">
+    <div class="table-row header">
+      <span>Folio</span>
+      <span>Unidad</span>
+      <span>Solicitante</span>
+      <span>Solicitud</span>
+      <span>Entrega</span>
+      <span>Estatus</span>
+      <span>Reporte</span>
+    </div>
+    {% for mov in movimientos %}
+    <div class="table-row">
+      <span class="mono">{{ mov.data.folio }}</span>
+      <span>[{{ mov.data.sigla }}] {{ mov.data.item_nombre }}</span>
+      <span>{{ mov.data.usuario_nombre }}</span>
+      <span>{{ mov.data.fecha_solicitud }}</span>
+      <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>
+      <span>
+        {% if mov.data.devuelto %}
+          Devuelto
+        {% elif mov.alerta %}
+          Alerta +7 dias
+        {% elif mov.data.fecha_entrega %}
+          En uso
+        {% else %}
+          Pendiente
+        {% endif %}
+      </span>
+      <span class="actions-inline">
+        <a class="btn ghost" href="{{ url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Sin movimientos registrados.</p>
+  {% endif %}
+</section>
+
+<section class="grid">
+  <div class="card">
+    <h2>Personal responsable</h2>
+    <p class="subtitle">Directorio de responsables de unidades.</p>
+    {% if responsables %}
+    <div class="pill-list">
+      {% for responsable in responsables %}
+      <span class="pill">{{ responsable.nombre }}</span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No hay responsables registrados.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Auditores registrados</h2>
+    <p class="subtitle">Equipo autorizado para solicitudes.</p>
+    {% if auditores %}
+    <div class="pill-list">
+      {% for auditor in auditores %}
+      <span class="pill">{{ auditor.nombre }}</span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No hay auditores registrados.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
