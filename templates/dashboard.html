@@ -28,81 +28,113 @@
           <select name="vehiculo_id" id="vehiculo_id" required>
             {% if vehiculos %}
               {% for vehiculo in vehiculos %}
-              <option value="{{ vehiculo.id }}" data-marca="{{ vehiculo.marca }}" data-modelo="{{ vehiculo.modelo }}">{{ vehiculo.placa }} · {{ vehiculo.modelo }}</option>
+              <option value="{{ vehiculo.id }}" data-marca="{{ vehiculo.marca }}" data-modelo="{{ vehiculo.modelo }}">{{ vehiculo.placa }}</option>
               {% endfor %}
             {% else %}
-              <option value="" disabled selected>No hay placas registradas</option>
+              <option value="" disabled selected>No hay vehiculos registrados</option>
             {% endif %}
           </select>
         </label>
         <label>
           Marca
-          <input type="text" name="marca" id="marca_unidad" value="{% if vehiculos %}{{ vehiculos[0].marca }}{% endif %}" readonly required>
+          <input type="text" id="marca_unidad" readonly required>
         </label>
         <label>
           Modelo
-          <input type="text" name="modelo" id="modelo_unidad" value="{% if vehiculos %}{{ vehiculos[0].modelo }}{% endif %}" readonly required>
+          <input type="text" id="modelo_unidad" readonly required>
         </label>
         <label class="full">
-          Responsable del vehiculo
-          <select name="responsable_id" required>
-            {% for responsable in responsables %}
-            <option value="{{ responsable.id }}">{{ responsable.nombre }}</option>
-            {% endfor %}
+          Nombre del resguardante
+          <select name="resguardante_id" required>
+            {% if resguardantes %}
+              {% for resguardante in resguardantes %}
+              <option value="{{ resguardante.id }}">{{ resguardante.nombre }}</option>
+              {% endfor %}
+            {% else %}
+              <option value="" disabled selected>No hay resguardantes registrados</option>
+            {% endif %}
           </select>
-        </label>
-        <label>
-          No. de pasajeros
-          <input type="number" name="no_pasajeros" min="1" max="10" required>
         </label>
       </fieldset>
 
       <fieldset class="form-section">
         <legend>Personal</legend>
         <label class="full">
-          Personal solicitante
-          <input type="text" name="personal_nombre" id="personal_nombre" placeholder="Nombre completo" required>
+          Responsable del vehiculo
+          <select name="responsable_usuario_id" required>
+            {% if usuarios %}
+              {% for usuario in usuarios %}
+              <option value="{{ usuario.id }}">{{ usuario.nombre }}</option>
+              {% endfor %}
+            {% else %}
+              <option value="" disabled selected>No hay usuarios registrados</option>
+            {% endif %}
+          </select>
+        </label>
+        <label>
+          No. de pasajeros
+          <input type="text" name="no_pasajeros" id="no_pasajeros" inputmode="numeric" pattern="[0-9]+" required>
         </label>
         <label class="full">
-          Nombre de los auditores
-          <select name="auditores_ids" multiple size="4" required>
-            {% for auditor in auditores %}
-            <option value="{{ auditor.id }}">{{ auditor.nombre }}</option>
-            {% endfor %}
-          </select>
+          Nombre de los pasajeros
+          <div class="multi-select">
+            <div class="multi-select-toolbar">
+              <input type="search" id="pasajeros_filter" class="multi-select-filter" placeholder="Buscar pasajero por nombre">
+              <div class="multi-select-actions">
+                <button class="btn ghost btn-small" type="button" data-action="select-all" data-target="pasajeros_ids">Seleccionar todo</button>
+                <button class="btn ghost btn-small" type="button" data-action="clear" data-target="pasajeros_ids">Limpiar</button>
+              </div>
+            </div>
+            <select name="pasajeros_ids" id="pasajeros_ids" class="multi-select-box" multiple size="6" required>
+              {% if usuarios %}
+                {% for usuario in usuarios %}
+                <option value="{{ usuario.id }}">{{ usuario.nombre }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>No hay usuarios registrados</option>
+              {% endif %}
+            </select>
+            <div class="multi-select-meta">
+              <span id="pasajeros_count" class="multi-count">0 seleccionados</span>
+              <span class="multi-hint">Use Ctrl/Cmd + clic para elegir varios.</span>
+            </div>
+          </div>
+          <p class="hint">Seleccione exactamente el mismo numero de pasajeros indicado.</p>
         </label>
       </fieldset>
 
       <fieldset class="form-section">
         <legend>Ruta y motivo</legend>
         <label class="full">
-          Buscar ente destino
-          <input type="text" id="ruta_busqueda" list="ruta_entes" placeholder="Escriba clave o nombre del ente">
-          <datalist id="ruta_entes">
-            <option value="TLAXCALA" label="Tlaxcala"></option>
-            <option value="VARIOS" label="Varios"></option>
-            {% for ente in entes_ruta %}
-            <option value="{{ ente.clave }}" label="{{ ente.siglas or ente.nombre }} · {{ ente.nombre }}{% if ente.direccion %} · {{ ente.direccion }}{% endif %}"></option>
-            {% endfor %}
-          </datalist>
-          <p class="hint">Seleccione un ente y se agregara a la ruta de destinos.</p>
-        </label>
-        <label class="full">
-          Ruta - destinos
-          <select name="ruta_destinos" multiple size="5" required>
-            <option value="TLAXCALA">Tlaxcala</option>
-            <option value="VARIOS">Varios</option>
-            {% for ente in entes_ruta %}
-            <option value="{{ ente.clave }}">{{ ente.siglas or ente.nombre }} · {{ ente.nombre }}{% if ente.direccion %} · {{ ente.direccion }}{% endif %}</option>
-            {% endfor %}
-          </select>
-          <p class="hint">Seleccione los entes destino en el orden de la lista.</p>
+          Ruta - destino
+          <div class="multi-select">
+            <div class="multi-select-toolbar">
+              <input type="search" id="ruta_filter" class="multi-select-filter" placeholder="Buscar destino o dependencia">
+              <div class="multi-select-actions">
+                <button class="btn ghost btn-small" type="button" data-action="select-all" data-target="ruta_destinos">Seleccionar todo</button>
+                <button class="btn ghost btn-small" type="button" data-action="clear" data-target="ruta_destinos">Limpiar</button>
+              </div>
+            </div>
+            <select name="ruta_destinos" id="ruta_destinos" class="multi-select-box" multiple size="6" required>
+              {% if entes %}
+                {% for ente in entes %}
+                <option value="{{ ente.clave }}">{{ ente.nombre }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>No hay destinos registrados</option>
+              {% endif %}
+            </select>
+            <div class="multi-select-meta">
+              <span id="ruta_count" class="multi-count">0 seleccionados</span>
+              <span class="multi-hint">Ejemplos: Centro Historico, Zona Industrial, Delegacion Norte.</span>
+            </div>
+          </div>
         </label>
         <label class="full">
           Motivo de salida
           <select name="motivo_salida" required>
-            <option value="Notificación de oficio">Notificación de oficio</option>
-            <option value="Revision de auditoria">Revision de auditoria</option>
+            <option value="Notificación de Oficio">Notificación de Oficio</option>
+            <option value="Revisión de Auditoría">Revisión de Auditoría</option>
           </select>
         </label>
       </fieldset>
@@ -117,8 +149,15 @@
   const vehiculoSelect = document.getElementById("vehiculo_id");
   const marcaInput = document.getElementById("marca_unidad");
   const modeloInput = document.getElementById("modelo_unidad");
-  const rutaBusqueda = document.getElementById("ruta_busqueda");
-  const rutaSelect = document.querySelector("select[name='ruta_destinos']");
+  const noPasajerosInput = document.getElementById("no_pasajeros");
+  const pasajerosSelect = document.getElementById("pasajeros_ids");
+  const pasajerosFilter = document.getElementById("pasajeros_filter");
+  const pasajerosCount = document.getElementById("pasajeros_count");
+  const rutaSelect = document.getElementById("ruta_destinos");
+  const rutaFilter = document.getElementById("ruta_filter");
+  const rutaCount = document.getElementById("ruta_count");
+  const solicitudForm = document.querySelector("form.form-sections");
+  const multiActionButtons = document.querySelectorAll("[data-action][data-target]");
 
   const actualizarVehiculo = () => {
     const selected = vehiculoSelect?.selectedOptions?.[0];
@@ -134,29 +173,94 @@
     actualizarVehiculo();
   }
 
-  const agregarDestino = () => {
-    if (!rutaBusqueda || !rutaSelect) {
+  const setupMultiSelect = (selectEl, filterEl, countEl) => {
+    if (!selectEl) {
       return;
     }
-    const value = rutaBusqueda.value.trim();
-    if (!value) {
-      return;
+
+    const getVisibleOptions = () =>
+      Array.from(selectEl.options).filter((option) => !option.disabled && !option.hidden);
+
+    const getAllOptions = () =>
+      Array.from(selectEl.options).filter((option) => !option.disabled);
+
+    const updateCount = () => {
+      if (!countEl) {
+        return;
+      }
+      const total = getAllOptions().length;
+      const selected = selectEl.selectedOptions.length;
+      countEl.textContent = `${selected} seleccionados de ${total}`;
+    };
+
+    const applyFilter = () => {
+      if (!filterEl) {
+        return;
+      }
+      const term = filterEl.value.trim().toLowerCase();
+      Array.from(selectEl.options).forEach((option) => {
+        if (option.disabled) {
+          return;
+        }
+        const match = option.textContent.toLowerCase().includes(term);
+        option.hidden = term.length > 0 && !match;
+      });
+    };
+
+    if (filterEl) {
+      filterEl.addEventListener("input", () => {
+        applyFilter();
+      });
     }
-    const match = Array.from(rutaSelect.options).find(
-      (option) => option.value.toUpperCase() === value.toUpperCase(),
-    );
-    if (match) {
-      match.selected = true;
-    }
-    rutaBusqueda.value = "";
+
+    selectEl.addEventListener("change", updateCount);
+    applyFilter();
+    updateCount();
+
+    return {
+      selectEl,
+      getVisibleOptions,
+      updateCount,
+    };
   };
 
-  if (rutaBusqueda) {
-    rutaBusqueda.addEventListener("change", agregarDestino);
-    rutaBusqueda.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
+  const pasajerosMulti = setupMultiSelect(pasajerosSelect, pasajerosFilter, pasajerosCount);
+  const rutaMulti = setupMultiSelect(rutaSelect, rutaFilter, rutaCount);
+
+  if (multiActionButtons.length) {
+    multiActionButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const targetId = button.dataset.target;
+        const action = button.dataset.action;
+        const selectEl = document.getElementById(targetId);
+        if (!selectEl) {
+          return;
+        }
+        const visibleOptions = Array.from(selectEl.options).filter(
+          (option) => !option.disabled && !option.hidden
+        );
+        if (action === "select-all") {
+          visibleOptions.forEach((option) => {
+            option.selected = true;
+          });
+        }
+        if (action === "clear") {
+          Array.from(selectEl.options).forEach((option) => {
+            option.selected = false;
+          });
+        }
+        selectEl.dispatchEvent(new Event("change"));
+      });
+    });
+  }
+
+  if (solicitudForm && noPasajerosInput && pasajerosSelect) {
+    solicitudForm.addEventListener("submit", (event) => {
+      const total = Number.parseInt(noPasajerosInput.value, 10);
+      const seleccionados = pasajerosSelect.selectedOptions.length;
+      if (!Number.isFinite(total) || total <= 0 || total !== seleccionados) {
         event.preventDefault();
-        agregarDestino();
+        alert("El numero de pasajeros debe coincidir con los nombres seleccionados.");
       }
     });
   }

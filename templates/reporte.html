@@ -58,12 +58,12 @@
       <strong>{{ movimiento.no_pasajeros }}</strong>
     </div>
     <div class="report-block full">
-      <span class="report-label">Personal solicitante</span>
+      <span class="report-label">Nombre del resguardante</span>
       <strong>{{ movimiento.resguardante_nombre or "No registrado" }}</strong>
     </div>
     <div class="report-block full">
-      <span class="report-label">Nombres de los auditores</span>
-      <strong>{{ movimiento.auditores_nombres }}</strong>
+      <span class="report-label">Nombre de los pasajeros</span>
+      <strong>{{ movimiento.pasajeros_nombres or "No registrados" }}</strong>
     </div>
     <div class="report-block full">
       <span class="report-label">Ruta - destinos</span>

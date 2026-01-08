@@ -359,6 +359,66 @@ body {
   background: #fbfaf9;
 }
 
+.multi-select {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #f7f3ee;
+}
+
+.multi-select-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.multi-select-filter {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.multi-select-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.multi-select-box {
+  min-height: 180px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.multi-select-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.82rem;
+  color: #6f6a62;
+}
+
+.multi-count {
+  font-weight: 600;
+  color: var(--accent-dark);
+}
+
+.multi-hint {
+  color: #7a746b;
+}
+
 textarea {
   resize: vertical;
 }
@@ -402,6 +462,11 @@ textarea {
 
 .btn:hover {
   transform: translateY(-1px);
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 0.8rem;
 }
 
 .pill-list {

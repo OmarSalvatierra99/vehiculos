@@ -162,25 +162,21 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
             for vehiculo in vehiculos
             if (vehiculo.get("placa") or "").upper() in item_siglas
         ]
-    responsables = db_manager.listar_responsables()
-    auditores = db_manager.listar_auditores()
-    notificaciones = db_manager.listar_notificaciones()
+    usuarios = db_manager.listar_usuarios()
+    resguardantes = db_manager.listar_resguardantes()
+    entes = db_manager.listar_entes()
     movimientos = db_manager.listar_movimientos(usuario_id=usuario_id)
-    entes = _filtrar_entes(db_manager.listar_entes(), session.get("entes", []))
-    entes_ruta = db_manager.listar_entes()
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
         app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
     )
     return {
-        "items": items,
-        "vehiculos": vehiculos,
-        "responsables": responsables,
-        "auditores": auditores,
-        "notificaciones": notificaciones,
-        "entes": entes,
-        "entes_ruta": entes_ruta,
         "movimientos": alertas,
+        "vehiculos": vehiculos,
+        "usuarios": usuarios,
+        "resguardantes": resguardantes,
+        "entes": entes,
+        "items": items,
         "today": date.today().isoformat(),
     }
 
@@ -194,7 +190,6 @@ def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
     )
     vehiculos = db_manager.listar_vehiculos()
     responsables = db_manager.listar_responsables()
-    auditores = db_manager.listar_auditores()
     total_stock = sum(int(item.get("stock_total") or 0) for item in items)
     total_disponible = sum(int(item.get("stock_disponible") or 0) for item in items)
     en_uso = sum(
@@ -209,7 +204,6 @@ def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
         "movimientos": alertas,
         "vehiculos": vehiculos,
         "responsables": responsables,
-        "auditores": auditores,
         "total_stock": total_stock,
         "total_disponible": total_disponible,
         "total_vehiculos": len(vehiculos),
@@ -299,55 +293,130 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return redirect(url_for("dashboard"))
 
         item_id = request.form.get("item_id")
-        ente = request.form.get("ente")
         cantidad = request.form.get("cantidad") or "1"
-        personal_nombre = request.form.get("personal_nombre", "").strip()
         vehiculo_id = request.form.get("vehiculo_id")
-        responsable_id = request.form.get("responsable_id")
-        no_pasajeros = request.form.get("no_pasajeros")
-        auditores = request.form.getlist("auditores_ids")
-        ruta_destinos = request.form.getlist("ruta_destinos")
-        motivo = request.form.get("motivo_salida")
+        resguardante_id = request.form.get("resguardante_id")
+        responsable_usuario_id = request.form.get("responsable_usuario_id")
+        no_pasajeros_txt = request.form.get("no_pasajeros", "").strip()
+        pasajeros_ids = [pid for pid in request.form.getlist("pasajeros_ids") if pid]
+        ruta_destinos = [clave for clave in request.form.getlist("ruta_destinos") if clave]
+        motivo = request.form.get("motivo_salida", "").strip()
         tipo_notificacion_id = request.form.get("tipo_notificacion_id")
         observaciones = request.form.get("observaciones")
         fecha = request.form.get("fecha_solicitud")
 
-        if not personal_nombre:
+        if not resguardante_id or not resguardante_id.isdigit():
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
-                error="Falta el nombre del personal solicitante.",
+                error="Falta seleccionar al resguardante.",
                 **context,
             )
 
-        if not ente:
-            entes = _filtrar_entes(db_manager.listar_entes(), session.get("entes", []))
-            if entes:
-                ente = entes[0].get("clave")
+        if not vehiculo_id or not vehiculo_id.isdigit():
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="Falta seleccionar la unidad.",
+                **context,
+            )
+
+        if not responsable_usuario_id or not responsable_usuario_id.isdigit():
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="Falta seleccionar al responsable del vehiculo.",
+                **context,
+            )
+
+        if not no_pasajeros_txt.isdigit():
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="El numero de pasajeros debe ser numerico.",
+                **context,
+            )
+        no_pasajeros = int(no_pasajeros_txt)
+        if no_pasajeros <= 0:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="El numero de pasajeros debe ser mayor a cero.",
+                **context,
+            )
+
+        if len(pasajeros_ids) != no_pasajeros:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="El numero de pasajeros debe coincidir con los nombres seleccionados.",
+                **context,
+            )
+        if any(not pid.isdigit() for pid in pasajeros_ids):
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="La lista de pasajeros no es valida.",
+                **context,
+            )
+
+        if not ruta_destinos:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="Falta seleccionar la ruta destino.",
+                **context,
+            )
+
+        motivos_validos = {"Notificación de Oficio", "Revisión de Auditoría"}
+        if motivo not in motivos_validos:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="El motivo de salida no es valido.",
+                **context,
+            )
 
         if not tipo_notificacion_id:
             notificaciones = db_manager.listar_notificaciones()
             if notificaciones:
                 tipo_notificacion_id = notificaciones[0].get("id")
 
-        if not item_id and vehiculo_id:
-            vehiculos = db_manager.listar_vehiculos(usuario_id=session.get("usuario_id"))
-            vehiculo = next(
-                (v for v in vehiculos if str(v.get("id")) == str(vehiculo_id)),
+        vehiculos = db_manager.listar_vehiculos(usuario_id=session.get("usuario_id"))
+        vehiculo = next(
+            (v for v in vehiculos if str(v.get("id")) == str(vehiculo_id)),
+            None,
+        )
+        if not vehiculo:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="La unidad seleccionada no es valida.",
+                **context,
+            )
+
+        placa_upper = (vehiculo.get("placa") or "").upper()
+
+        if not item_id and placa_upper:
+            items = _filtrar_vehiculos(db_manager.listar_items())
+            item = next(
+                (i for i in items if (i.get("sigla") or "").upper() == placa_upper),
                 None,
             )
-            if vehiculo:
-                items = _filtrar_vehiculos(db_manager.listar_items())
-                placa = (vehiculo.get("placa") or "").upper()
-                item = next(
-                    (i for i in items if (i.get("sigla") or "").upper() == placa),
-                    None,
-                )
-                if item:
-                    item_id = item.get("id")
+            if item:
+                item_id = item.get("id")
 
-        if not item_id or not ente or not tipo_notificacion_id:
+        if not item_id or not tipo_notificacion_id:
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
             return render_template(
                 "dashboard.html",
@@ -359,18 +428,18 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         ok, data = db_manager.crear_movimiento(
             int(item_id),
             session["usuario_id"],
-            ente,
+            ruta_destinos[0],
             int(cantidad),
-            personal_nombre or "",
+            "",
             None,
             observaciones,
-            personal_nombre or "",
-            int(vehiculo_id) if vehiculo_id else None,
-            int(responsable_id) if responsable_id else None,
-            int(no_pasajeros) if no_pasajeros else None,
-            [int(auditor_id) for auditor_id in auditores if auditor_id],
-            [clave for clave in ruta_destinos if clave],
-            motivo or "",
+            int(resguardante_id),
+            int(vehiculo_id),
+            int(responsable_usuario_id),
+            int(no_pasajeros),
+            [int(pid) for pid in pasajeros_ids],
+            ruta_destinos,
+            motivo,
             int(tipo_notificacion_id) if tipo_notificacion_id else None,
             fecha_solicitud=fecha,
         )
@@ -380,7 +449,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
-                error=data.get("mensaje"),
+                error=data.get("mensaje") if isinstance(data, dict) else data,
                 **context,
             )
 

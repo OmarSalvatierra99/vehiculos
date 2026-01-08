@@ -186,17 +186,9 @@
   </div>
 
   <div class="card">
-    <h2>Auditores registrados</h2>
-    <p class="subtitle">Equipo autorizado para solicitudes.</p>
-    {% if auditores %}
-    <div class="pill-list">
-      {% for auditor in auditores %}
-      <span class="pill">{{ auditor.nombre }}</span>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty">No hay auditores registrados.</p>
-    {% endif %}
+    <h2>Auditores</h2>
+    <p class="subtitle">Captura manual habilitada para solicitudes.</p>
+    <p class="empty">No hay catalogo cargado.</p>
   </div>
 </section>
 {% endblock %}
