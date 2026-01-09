@@ -6,6 +6,7 @@ import hashlib
 import logging
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 from pathlib import Path
@@ -19,6 +20,16 @@ def _normalizar_header(valor: str) -> str:
         return ""
     limpio = re.sub(r"[^A-Z0-9]", "", str(valor).upper())
     return limpio
+
+
+def _normalizar_clave(valor: str) -> str:
+    if not valor:
+        return ""
+    normalizado = unicodedata.normalize("NFKD", str(valor))
+    ascii_txt = "".join(ch for ch in normalizado if not unicodedata.combining(ch))
+    ascii_txt = ascii_txt.upper()
+    ascii_txt = re.sub(r"[^A-Z0-9]+", "_", ascii_txt).strip("_")
+    return ascii_txt
 
 
 def _parse_date(valor: Optional[str]) -> Optional[str]:
@@ -43,6 +54,149 @@ def _hoy_iso() -> str:
 
 def _hash_password(clave: str) -> str:
     return hashlib.sha256(clave.encode()).hexdigest()
+
+
+ENTES_MANUALES = [
+    "PODER EJECUTIVO DEL ESTADO DE TLAXCALA",
+    "DESPACHO DE LA GOBERNADORA",
+    "SECRETARÍA DE LA FUNCIÓN PÚBLICA",
+    "SECRETARÍA DE IMPULSO AGROPECUARIO",
+    "COORDINACIÓN DE COMUNICACIÓN",
+    "SECRETARÍA DE MEDIO AMBIENTE",
+    "SECRETARÍA DE CULTURA",
+    "SECRETARÍA DE LAS MUJERES",
+    "SECRETARÍA DE ORDENAMIENTO TERRITORIAL Y VIVIENDA",
+    "SECRETARÍA DE SEGURIDAD CIUDADANA",
+    "COORDINACIÓN GENERAL DE PLANEACIÓN E INVERSIÓN",
+    "SECRETARÍA DE BIENESTAR",
+    "SECRETARÍA DE GOBIERNO",
+    "SECRETARÍA DE TRABAJO Y COMPETITIVIDAD",
+    "CONSEJERÍA JURÍDICA DEL EJECUTIVO",
+    "COORDINACIÓN ESTATAL DE PROTECCIÓN CIVIL",
+    "SECRETARIADO EJECUTIVO DEL SISTEMA ESTATAL DE SEGURIDAD PÚBLICA",
+    "INSTITUTO TLAXCALTECA DE DESARROLLO TAURINO",
+    "INSTITUTO TLAXCALTECA DE ASISTENCIA ESPECIALIZADA A LA SALUD",
+    "COMISIÓN ESTATAL DE ARBITRAJE MÉDICO",
+    "CASA DE LAS ARTESANÍAS DE TLAXCALA",
+    "PROCURADURÍA DE PROTECCIÓN AL AMBIENTE DEL ESTADO DE TLAXCALA",
+    "INSTITUTO DE FAUNA SILVESTRE PARA EL ESTADO DE TLAXCALA",
+    "OFICIALIA MAYOR DE GOBIERNO",
+    "SECRETARÍA DE FINANZAS",
+    "SECRETARÍA DE DESARROLLO ECONOMICO",
+    "SECRETARÍA DE TURISMO",
+    "SECRETARÍA DE INFRAESTRUCTURA",
+    "SECRETARÍA DE EDUCACIÓN PÚBLICA",
+    "SECRETARÍA DE MOVILIDAD Y TRANSPORTE",
+    "COORDINACIÓN DE RADIO, CINE Y TELEVISIÓN",
+    "EL COLEGIO DE TLAXCALA, A.C.",
+    "FIDEICOMISO DE LA CIUDAD INDUSTRIAL DE XICOTÉNCATL",
+    "COMISIÓN EJECUTIVA DE ATENCIÓN A VÍCTIMAS DEL ESTADO DE TLAXCALA",
+    "FONDO MACRO PARA EL DESARROLLO INTEGRAL DE TLAXCALA",
+    "INSTITUTO DE CAPACITACIÓN PARA EL TRABAJO DEL ESTADO DE TLAXCALA",
+    "INSTITUTO DE CATASTRO DEL ESTADO DE TLAXCALA",
+    "INSTITUTO DEL DEPORTE DE TLAXCALA",
+    "INSTITUTO TECNOLÓGICO SUPERIOR DE TLAXCO",
+    "INSTITUTO TLAXCALTECA DE LA INFRAESTRUCTURA FÍSICA EDUCATIVA",
+    "PODER LEGISLATIVO DEL ESTADO DE TLAXCALA",
+    "INSTITUTO TLAXCALTECA DE LA JUVENTUD",
+    "INSTITUTO TLAXCALTECA PARA LA EDUCACIÓN DE LOS ADULTOS, ITEA",
+    "ÓRGANISMO PÚBLICO DESCENTRALIZADO SALUD DE TLAXCALA",
+    "PATRONATO CENTRO DE REHABILITACIÓN INTEGRAL Y ESCUELA EN TERAPIA FÍSICA Y REHABILITACIÓN",
+    "PATRONATO \"LA LIBERTAD CENTRO CULTURAL DE APIZACO\"",
+    "PENSIONES CIVILES DEL ESTADO DE TLAXCALA",
+    "SISTEMA ESTATAL PARA EL DESARROLLO INTEGRAL DE LA FAMILIA",
+    "UNIDAD DE SERVICIOS EDUCATIVOS DEL ESTADO DE TLAXCALA",
+    "UNIVERSIDAD POLITÉCNICA DE TLAXCALA",
+    "UNIVERSIDAD POLITÉCNICA DE TLAXCALA REGIÓN PONIENTE",
+    "PODER JUDICIAL DEL ESTADO DE TLAXCALA",
+    "UNIVERSIDAD TECNOLÓGICA DE TLAXCALA",
+    "UNIVERSIDAD INTERCULTURAL DE TLAXCALA",
+    "ARCHIVO GENERAL E HISTORICO DEL ESTADO DE TLAXCALA",
+    "TRIBUNAL DE JUSTICIA ADMINISTRATIVA DEL ESTADO DE TLAXCALA",
+    "UNIVERSIDAD AUTÓNOMA DE TLAXCALA",
+    "COMISIÓN ESTATAL DE DERECHOS HUMANOS",
+    "INSTITUTO TLAXCALTECA DE ELECCIONES",
+    "INSTITUTO DE ACCESO A LA INFORMACIÓN PÚBLICA Y PROTECCIÓN DE DATOS PERSONALES DEL ESTADO DE TLAXCALA",
+    "TRIBUNAL DE CONCILIACIÓN Y ARBITRAJE DEL ESTADO DE TLAXCALA",
+    "TRIBUNAL ELECTORAL DE TLAXCALA",
+    "CENTRO DE CONCILIACIÓN LABORAL DEL ESTADO DE TLAXCALA",
+    "FISCALÍA GENERAL DE JUSTICIA DEL ESTADO DE TLAXCALA",
+    "SECRETARIA EJECUTIVA DEL SISTEMA ANTICORRUPCIÓN DEL ESTADO DE TLAXCALA",
+    "PATRONATO PARA LAS EXPOSICIONES Y FERIAS EN LA CIUDAD DE TLAXCALA",
+    "COMISIÓN ESTATAL DEL AGUA Y SANEAMIENTO DEL ESTADO DE TLAXCALA",
+    "COLEGIO DE BACHILLERES DEL ESTADO DE TLAXCALA",
+    "COLEGIO DE EDUCACIÓN PROFESIONAL TÉCNICA DEL ESTADO DE TLAXCALA",
+    "COLEGIO DE ESTUDIOS CIENTÍFICOS Y TECNOLÓGICOS DEL ESTADO DE TLAXCALA",
+    "CONSEJO ESTATAL DE POBLACIÓN",
+    "COMISIÓN DE AGUA POTABLE Y ALCANTARILLADO DEL MUNICIPIO DE HUAMANTLA",
+    "COMISIÓN DE AGUA POTABLE Y ALCANTARILLADO DEL MUNICIPIO DE APIZACO",
+    "COMISIÓN DE AGUA POTABLE Y ALCANTARILLADO DEL MUNICIPIO DE CHIAUTEMPAN",
+    "COMISIÓN DE AGUA POTABLE Y ALCANTARILLADO DEL MUNICIPIO DE ZACATELCO",
+    "COMISIÓN DE POTABLE Y Y ALCANTARILLADO DEL MUNICIPIO TLAXCALA",
+]
+
+MUNICIPIOS_MANUALES = [
+    "ACUAMANALA DE MIGUEL HIDALGO",
+    "CONTLA DE JUAN CUAMATZI",
+    "CUAPIAXTLA",
+    "CUAXOMULCO",
+    "EL CARMEN TEQUEXQUITLA",
+    "EMILIANO ZAPATA",
+    "ESPAÑITA",
+    "HUAMANTLA",
+    "HUEYOTLIPAN",
+    "IXTACUIXTLA DE MARIANO MATAMOROS",
+    "IXTENCO",
+    "ATLTZAYANCA",
+    "LA MAGDALENA TLALTELULCO",
+    "LÁZARO CÁRDENAS",
+    "MAZATECOCHCO DE JOSÉ MARÍA MORELOS",
+    "MUÑOZ DE DOMINGO ARENAS",
+    "NANACAMILPA DE MARIANO ARISTA",
+    "NATIVITAS",
+    "PANOTLA",
+    "PAPALOTLA DE XICOHTÉNCATL",
+    "SAN DAMIÁN TEXOLOC",
+    "SAN FRANCISCO TETLANOHCAN",
+    "AMAXAC DE GUERRERO",
+    "SAN JERÓNIMO ZACUALPAN",
+    "SAN JOSÉ TEACALCO",
+    "SAN JUAN HUACTZINCO",
+    "SAN LORENZO AXOCOMANITLA",
+    "SAN LUCAS TECOPILCO",
+    "SAN PABLO DEL MONTE",
+    "SANCTÓRUM DE LÁZARO CÁRDENAS",
+    "SANTA ANA NOPALUCAN",
+    "SANTA APOLONIA TEACALCO",
+    "SANTA CATARINA AYOMETLA",
+    "APETATITLÁN DE ANTONIO CARVAJAL",
+    "SANTA CRUZ QUILEHTLA",
+    "SANTA CRUZ TLAXCALA",
+    "SANTA ISABEL XILOXOXTLA",
+    "TENANCINGO",
+    "TEOLOCHOLCO",
+    "TEPETITLA DE LARDIZÁBAL",
+    "TEPEYANCO",
+    "TERRENATE",
+    "TETLA DE LA SOLIDARIDAD",
+    "TETLATLAHUCA",
+    "APIZACO",
+    "TLAXCALA",
+    "TLAXCO",
+    "TOCATLÁN",
+    "TOTOLAC",
+    "TZOMPANTEPEC",
+    "XALOZTOC",
+    "XALTOCAN",
+    "XICOHTZINCO",
+    "YAUHQUEMEHCAN",
+    "ZACATELCO",
+    "ATLANGATEPEC",
+    "ZITLALTÉPEC DE TRINIDAD SÁNCHEZ SANTOS",
+    "BENITO JUÁREZ",
+    "CALPULALPAN",
+    "CHIAUTEMPAN",
+]
 
 
 @dataclass
@@ -258,64 +412,106 @@ class DatabaseManager:
         conn.close()
 
     def _seed_catalogos(self):
+        entes = []
+        municipios = []
         if not self.catalogos_dir.exists():
             logger.warning("Directorio de catálogos no encontrado: %s", self.catalogos_dir)
-            return
+        else:
+            try:
+                from openpyxl import load_workbook
+            except ImportError:
+                logger.warning("openpyxl no está instalado; omitiendo carga de catálogos.")
+                load_workbook = None
+            if load_workbook:
+                def cargar_archivo(nombre: str, tipo: str):
+                    path = self.catalogos_dir / nombre
+                    if not path.exists():
+                        logger.warning("Catálogo no encontrado: %s", path)
+                        return []
 
-        try:
-            from openpyxl import load_workbook
-        except ImportError:
-            logger.warning("openpyxl no está instalado; omitiendo carga de catálogos.")
-            return
+                    wb = load_workbook(path, read_only=True, data_only=True)
+                    ws = wb[wb.sheetnames[0]]
+                    rows = ws.iter_rows(min_row=1, values_only=True)
+                    headers = next(rows, [])
+                    header_map = {
+                        _normalizar_header(h): idx
+                        for idx, h in enumerate(headers or [])
+                        if h
+                    }
 
-        def cargar_archivo(nombre: str, tipo: str):
-            path = self.catalogos_dir / nombre
-            if not path.exists():
-                logger.warning("Catálogo no encontrado: %s", path)
-                return []
+                    def get_val(row, keys):
+                        for key in keys:
+                            for h, idx in header_map.items():
+                                if key in h:
+                                    return row[idx]
+                        return None
 
-            wb = load_workbook(path, read_only=True, data_only=True)
-            ws = wb[wb.sheetnames[0]]
-            rows = ws.iter_rows(min_row=1, values_only=True)
-            headers = next(rows, [])
-            header_map = {
-                _normalizar_header(h): idx
-                for idx, h in enumerate(headers or [])
-                if h
-            }
+                    datos = []
+                    for row in rows:
+                        clave = get_val(row, ["CLAVE"])
+                        nombre_val = get_val(row, ["NOMBRE"])
+                        if not clave or not nombre_val:
+                            continue
+                        datos.append({
+                            "num": get_val(row, ["NUM"]),
+                            "clave": str(clave).strip(),
+                            "nombre": str(nombre_val).strip(),
+                            "siglas": (get_val(row, ["SIGLA"]) or "").strip(),
+                            "direccion": (get_val(row, ["DIRECCION", "DOMICILIO"]) or "").strip(),
+                            "tipo": tipo,
+                        })
+                    return datos
 
-            def get_val(row, keys):
-                for key in keys:
-                    for h, idx in header_map.items():
-                        if key in h:
-                            return row[idx]
-                return None
+                entes = cargar_archivo("Estatales.xlsx", "ENTE")
+                municipios = cargar_archivo("Municipales.xlsx", "MUNICIPIO")
 
-            datos = []
-            for row in rows:
-                clave = get_val(row, ["CLAVE"])
-                nombre_val = get_val(row, ["NOMBRE"])
-                if not clave or not nombre_val:
+        claves_usadas = {row["clave"] for row in entes + municipios if row.get("clave")}
+
+        def _build_manual_rows(nombres: List[str], tipo: str) -> List[Dict]:
+            rows = []
+            vistos = set()
+            for nombre in nombres:
+                nombre_txt = str(nombre).strip()
+                if not nombre_txt:
                     continue
-                datos.append({
-                    "num": get_val(row, ["NUM"]),
-                    "clave": str(clave).strip(),
-                    "nombre": str(nombre_val).strip(),
-                    "siglas": (get_val(row, ["SIGLA"]) or "").strip(),
-                    "direccion": (get_val(row, ["DIRECCION", "DOMICILIO"]) or "").strip(),
+                nombre_key = nombre_txt.upper()
+                if nombre_key in vistos:
+                    continue
+                vistos.add(nombre_key)
+                clave_base = _normalizar_clave(nombre_txt)
+                clave = clave_base
+                counter = 2
+                while not clave or clave in claves_usadas:
+                    clave = f"{clave_base}_{counter}"
+                    counter += 1
+                claves_usadas.add(clave)
+                rows.append({
+                    "num": None,
+                    "clave": clave,
+                    "nombre": nombre_txt,
+                    "siglas": "",
+                    "direccion": "",
                     "tipo": tipo,
                 })
-            return datos
+            return rows
 
-        entes = cargar_archivo("Estatales.xlsx", "ENTE")
-        municipios = cargar_archivo("Municipales.xlsx", "MUNICIPIO")
+        entes_manual = _build_manual_rows(ENTES_MANUALES, "ENTE")
+        municipios_manual = _build_manual_rows(MUNICIPIOS_MANUALES, "MUNICIPIO")
 
-        if not entes and not municipios:
+        if not entes and not municipios and not entes_manual and not municipios_manual:
             return
 
         conn = self._connect()
         cur = conn.cursor()
-        for row in entes + municipios:
+        cur.execute("SELECT clave, nombre FROM entes")
+        existentes_por_nombre = {
+            (row["nombre"] or "").strip().upper(): row["clave"]
+            for row in cur.fetchall()
+        }
+        for row in entes + municipios + entes_manual + municipios_manual:
+            nombre_key = (row.get("nombre") or "").strip().upper()
+            if nombre_key in existentes_por_nombre:
+                row["clave"] = existentes_por_nombre[nombre_key]
             cur.execute("""
                 INSERT INTO entes (num, clave, nombre, siglas, direccion, tipo, activo)
                 VALUES (?, ?, ?, ?, ?, ?, 1)

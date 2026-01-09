@@ -309,7 +309,7 @@ body {
   padding: 18px;
   background: #ffffff;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   margin: 0;
 }
@@ -408,6 +408,34 @@ body {
   gap: 12px;
   font-size: 0.82rem;
   color: #6f6a62;
+}
+
+.multi-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--accent-dark);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(18, 59, 54, 0.12);
+}
+
+.chip-empty {
+  color: #7a746b;
+  font-size: 0.82rem;
 }
 
 .multi-count {
@@ -716,5 +744,61 @@ textarea {
   .brand-overline {
     font-size: 0.65rem;
     letter-spacing: 0.16em;
+  }
+
+  .content {
+    padding: 28px 5vw 46px;
+  }
+
+  .card {
+    padding: 20px;
+  }
+
+  .form-section {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .form-section legend {
+    font-size: 0.95rem;
+  }
+
+  .actions {
+    justify-content: stretch;
+  }
+
+  .actions .btn {
+    width: 100%;
+  }
+
+  .multi-select-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .multi-select-filter {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .multi-select-actions {
+    width: 100%;
+  }
+
+  .multi-select-actions .btn {
+    flex: 1;
+  }
+
+  .multi-select-box {
+    min-height: 150px;
+  }
+
+  .multi-chips {
+    gap: 6px;
+  }
+
+  .chip {
+    width: 100%;
+    text-align: left;
   }
 }

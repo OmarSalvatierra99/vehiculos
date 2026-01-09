@@ -98,6 +98,7 @@
               <span id="pasajeros_count" class="multi-count">0 seleccionados</span>
               <span class="multi-hint">Use Ctrl/Cmd + clic para elegir varios.</span>
             </div>
+            <div id="pasajeros_chips" class="multi-chips" aria-live="polite"></div>
           </div>
           <p class="hint">Seleccione exactamente el mismo numero de pasajeros indicado.</p>
         </label>
@@ -128,6 +129,7 @@
               <span id="ruta_count" class="multi-count">0 seleccionados</span>
               <span class="multi-hint">Ejemplos: Centro Historico, Zona Industrial, Delegacion Norte.</span>
             </div>
+            <div id="ruta_chips" class="multi-chips" aria-live="polite"></div>
           </div>
         </label>
         <label class="full">
@@ -153,9 +155,11 @@
   const pasajerosSelect = document.getElementById("pasajeros_ids");
   const pasajerosFilter = document.getElementById("pasajeros_filter");
   const pasajerosCount = document.getElementById("pasajeros_count");
+  const pasajerosChips = document.getElementById("pasajeros_chips");
   const rutaSelect = document.getElementById("ruta_destinos");
   const rutaFilter = document.getElementById("ruta_filter");
   const rutaCount = document.getElementById("ruta_count");
+  const rutaChips = document.getElementById("ruta_chips");
   const solicitudForm = document.querySelector("form.form-sections");
   const multiActionButtons = document.querySelectorAll("[data-action][data-target]");
 
@@ -173,7 +177,7 @@
     actualizarVehiculo();
   }
 
-  const setupMultiSelect = (selectEl, filterEl, countEl) => {
+  const setupMultiSelect = (selectEl, filterEl, countEl, chipsEl) => {
     if (!selectEl) {
       return;
     }
@@ -191,6 +195,32 @@
       const total = getAllOptions().length;
       const selected = selectEl.selectedOptions.length;
       countEl.textContent = `${selected} seleccionados de ${total}`;
+    };
+
+    const updateChips = () => {
+      if (!chipsEl) {
+        return;
+      }
+      chipsEl.innerHTML = "";
+      const selected = Array.from(selectEl.selectedOptions);
+      if (!selected.length) {
+        const empty = document.createElement("span");
+        empty.className = "chip-empty";
+        empty.textContent = "Sin selecciones";
+        chipsEl.appendChild(empty);
+        return;
+      }
+      selected.forEach((option) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.textContent = option.textContent;
+        chip.addEventListener("click", () => {
+          option.selected = false;
+          selectEl.dispatchEvent(new Event("change"));
+        });
+        chipsEl.appendChild(chip);
+      });
     };
 
     const applyFilter = () => {
@@ -213,9 +243,13 @@
       });
     }
 
-    selectEl.addEventListener("change", updateCount);
+    selectEl.addEventListener("change", () => {
+      updateCount();
+      updateChips();
+    });
     applyFilter();
     updateCount();
+    updateChips();
 
     return {
       selectEl,
@@ -224,8 +258,13 @@
     };
   };
 
-  const pasajerosMulti = setupMultiSelect(pasajerosSelect, pasajerosFilter, pasajerosCount);
-  const rutaMulti = setupMultiSelect(rutaSelect, rutaFilter, rutaCount);
+  const pasajerosMulti = setupMultiSelect(
+    pasajerosSelect,
+    pasajerosFilter,
+    pasajerosCount,
+    pasajerosChips
+  );
+  const rutaMulti = setupMultiSelect(rutaSelect, rutaFilter, rutaCount, rutaChips);
 
   if (multiActionButtons.length) {
     multiActionButtons.forEach((button) => {
