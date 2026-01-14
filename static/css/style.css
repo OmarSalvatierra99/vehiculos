@@ -357,6 +357,8 @@ body {
   font-family: inherit;
   font-size: 0.95rem;
   background: #fbfaf9;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .multi-select {
