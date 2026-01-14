@@ -211,12 +211,14 @@ class DatabaseManager:
         self.catalogos_dir = Path(catalogos_dir)
         logger.info("Base de datos en uso: %s", Path(self.db_path).resolve())
         self._init_db()
+        self._ensure_usuarios_columns()
         self._ensure_movimientos_columns()
         self._ensure_entes_columns()
         self._seed_catalogos()
         self._seed_usuarios()
         self._seed_inventario()
         self._seed_vehiculos()
+        self._seed_usuarios_vehiculos()
         self._seed_responsables()
         self._seed_resguardantes()
         self._seed_notificaciones()
@@ -236,6 +238,7 @@ class DatabaseManager:
                 usuario TEXT UNIQUE NOT NULL,
                 clave TEXT NOT NULL,
                 rol TEXT NOT NULL DEFAULT 'usuario',
+                puesto TEXT DEFAULT '',
                 entes TEXT NOT NULL DEFAULT 'TODOS',
                 activo INTEGER DEFAULT 1
             );
@@ -371,6 +374,19 @@ class DatabaseManager:
                 FOREIGN KEY(usuario_id) REFERENCES usuarios(id),
                 FOREIGN KEY(vehiculo_id) REFERENCES vehiculos(id)
             );
+
+            CREATE TABLE IF NOT EXISTS prestamos_vehiculos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                solicitante_id INTEGER NOT NULL,
+                propietario_id INTEGER NOT NULL,
+                vehiculo_id INTEGER NOT NULL,
+                fecha_solicitud TEXT NOT NULL,
+                estado TEXT NOT NULL DEFAULT 'PENDIENTE',
+                notas TEXT,
+                FOREIGN KEY(solicitante_id) REFERENCES usuarios(id),
+                FOREIGN KEY(propietario_id) REFERENCES usuarios(id),
+                FOREIGN KEY(vehiculo_id) REFERENCES vehiculos(id)
+            );
         """)
         conn.commit()
         conn.close()
@@ -382,6 +398,16 @@ class DatabaseManager:
         existentes = {row["name"] for row in cur.fetchall()}
         if "direccion" not in existentes:
             cur.execute("ALTER TABLE entes ADD COLUMN direccion TEXT")
+        conn.commit()
+        conn.close()
+
+    def _ensure_usuarios_columns(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(usuarios)")
+        existentes = {row["name"] for row in cur.fetchall()}
+        if "puesto" not in existentes:
+            cur.execute("ALTER TABLE usuarios ADD COLUMN puesto TEXT DEFAULT ''")
         conn.commit()
         conn.close()
 
@@ -530,16 +556,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM usuarios")
-        if cur.fetchone()[0] > 0:
-            cur.execute("SELECT COUNT(*) FROM usuarios WHERE rol='monitor'")
-            if cur.fetchone()[0] == 0:
-                cur.execute(
-                    "INSERT INTO usuarios (nombre, usuario, clave, rol, entes) VALUES (?, ?, ?, ?, ?)",
-                    ("Monitor Vehicular", "monitor", _hash_password("monitor5010"), "monitor", "TODOS"),
-                )
-                conn.commit()
-            conn.close()
-            return
+        total = cur.fetchone()[0]
 
         usuarios_path = self.catalogos_dir / "Usuarios_SASP_2025.xlsx"
         usuarios = []
@@ -573,6 +590,7 @@ class DatabaseManager:
                 clave = get_val(row, ["CLAVE", "PASSWORD"])
                 entes = get_val(row, ["ENTES", "ENTE"])
                 rol = get_val(row, ["ROL", "PERFIL"])
+                puesto = get_val(row, ["PUESTO", "CARGO"])
                 if not nombre or not usuario:
                     continue
 
@@ -591,20 +609,46 @@ class DatabaseManager:
                     str(usuario).strip(),
                     _hash_password(clave_txt),
                     rol_txt,
+                    str(puesto).strip() if puesto else "",
                     entes_txt,
                 ))
 
-        if not usuarios:
+        if total == 0 and not usuarios:
             usuarios = [
-                ("Administrador Inventario", "admin", _hash_password("admin5010"), "admin", "TODOS"),
-                ("Usuario Auditor", "usuario", _hash_password("usuario5010"), "user", "TODOS"),
+                ("Administrador Inventario", "admin", _hash_password("admin5010"), "admin", "Administrador", "TODOS"),
+                ("Usuario Auditor", "usuario", _hash_password("usuario5010"), "user", "Auditor", "TODOS"),
             ]
             logger.warning("Usuarios base creados; cambie las claves por seguridad.")
 
-        cur.executemany(
-            "INSERT INTO usuarios (nombre, usuario, clave, rol, entes) VALUES (?, ?, ?, ?, ?)",
-            usuarios,
-        )
+        if total == 0 and usuarios:
+            cur.executemany(
+                "INSERT INTO usuarios (nombre, usuario, clave, rol, puesto, entes) VALUES (?, ?, ?, ?, ?, ?)",
+                usuarios,
+            )
+
+        usuarios_requeridos = [
+            ("Monitor Vehicular", "monitor", "monitor2025", "monitor", "Responsable de los vehículos"),
+            ("C.P. Cristina Rosas de la Cruz", "cristina", "cristina2025", "user", "Coordinador"),
+            ("C.P. Luis Felipe Camilo Fuentes", "luis", "luis2025", "user", "Subdirector"),
+            ("C.P. Miguel Ángel Roldán Peña", "miguel", "miguel2025", "user", "Coordinador"),
+            ("C.P. Odilia Cuamatzi Bautista", "odilia", "odilia2025", "user", "Directora"),
+            ("C.P.C. Juan José Blanco Sánchez", "juan", "juan2025", "user", "Coordinador"),
+            ("Téc. Ángel Flores Licona", "angel", "angel2025", "user", "Coordinador"),
+        ]
+
+        for nombre, usuario, clave_txt, rol_txt, puesto in usuarios_requeridos:
+            cur.execute("""
+                SELECT id
+                FROM usuarios
+                WHERE LOWER(usuario)=LOWER(?)
+            """, (usuario,))
+            if cur.fetchone():
+                continue
+            cur.execute(
+                "INSERT INTO usuarios (nombre, usuario, clave, rol, puesto, entes) VALUES (?, ?, ?, ?, ?, ?)",
+                (nombre, usuario, _hash_password(clave_txt), rol_txt, puesto, "TODOS"),
+            )
+
         conn.commit()
         conn.close()
 
@@ -658,7 +702,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, nombre, usuario, rol
+            SELECT id, nombre, usuario, rol, puesto
             FROM usuarios
             WHERE activo=1
             ORDER BY nombre
@@ -705,6 +749,30 @@ class DatabaseManager:
                 "Marca: VOLKSWAGEN · Modelo: VERSA SENSE",
                 1,
             ),
+            (
+                "XBL-902-B",
+                "Volkswagen Jetta",
+                "VEHICULO",
+                "INV-003",
+                "Marca: VOLKSWAGEN · Modelo: JETTA",
+                1,
+            ),
+            (
+                "XDF-551-C",
+                "Nissan Sentra",
+                "VEHICULO",
+                "INV-004",
+                "Marca: NISSAN · Modelo: SENTRA",
+                1,
+            ),
+            (
+                "XHY-112-A",
+                "Chevrolet Aveo",
+                "VEHICULO",
+                "INV-005",
+                "Marca: CHEVROLET · Modelo: AVEO",
+                1,
+            ),
         ]
 
         cur.executemany("""
@@ -731,11 +799,64 @@ class DatabaseManager:
             ("XVZ-357-C", "VERSA SENSE", "NISSAN"),
             ("XVZ-385-C", "VERSA SENSE", "VOLKSWAGEN"),
             ("XBL-902-B", "JETTA", "VOLKSWAGEN"),
+            ("XDF-551-C", "SENTRA", "NISSAN"),
+            ("XHY-112-A", "AVEO", "CHEVROLET"),
         ]
         cur.executemany("""
             INSERT INTO vehiculos (placa, modelo, marca, activo)
             VALUES (?, ?, ?, 1)
         """, vehiculos)
+        conn.commit()
+        conn.close()
+
+    def _seed_usuarios_vehiculos(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM usuarios_vehiculos")
+        if cur.fetchone()[0] > 0:
+            conn.close()
+            return
+
+        cur.execute("""
+            SELECT id, usuario
+            FROM usuarios
+            WHERE activo=1
+        """)
+        usuarios = {row["usuario"].lower(): row["id"] for row in cur.fetchall()}
+
+        cur.execute("""
+            SELECT id, placa
+            FROM vehiculos
+            WHERE activo=1
+        """)
+        vehiculos = {row["placa"].upper(): row["id"] for row in cur.fetchall()}
+
+        asignaciones = [
+            ("monitor", ["XVZ-357-C", "XVZ-385-C", "XBL-902-B", "XDF-551-C", "XHY-112-A"]),
+            ("cristina", ["XVZ-357-C"]),
+            ("luis", ["XVZ-385-C"]),
+            ("miguel", ["XBL-902-B"]),
+            ("odilia", ["XDF-551-C"]),
+            ("juan", ["XHY-112-A"]),
+            ("angel", ["XVZ-357-C", "XDF-551-C"]),
+        ]
+
+        registros = []
+        for usuario_key, placas in asignaciones:
+            usuario_id = usuarios.get(usuario_key)
+            if not usuario_id:
+                continue
+            for placa in placas:
+                vehiculo_id = vehiculos.get(placa.upper())
+                if vehiculo_id:
+                    registros.append((usuario_id, vehiculo_id))
+
+        if registros:
+            cur.executemany("""
+                INSERT OR IGNORE INTO usuarios_vehiculos (usuario_id, vehiculo_id)
+                VALUES (?, ?)
+            """, registros)
+
         conn.commit()
         conn.close()
 
@@ -873,6 +994,78 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def listar_vehiculos_prestables(self, solicitante_id: int) -> List[Dict]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT v.id, v.placa, v.modelo, v.marca,
+                   u.id AS propietario_id, u.nombre AS propietario_nombre
+            FROM vehiculos v
+            JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
+            JOIN usuarios u ON u.id = uv.usuario_id
+            WHERE v.activo=1
+              AND u.activo=1
+              AND uv.usuario_id != ?
+            ORDER BY u.nombre, v.placa
+        """, (solicitante_id,))
+        data = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return data
+
+    def solicitar_prestamo(
+        self,
+        solicitante_id: int,
+        propietario_id: int,
+        vehiculo_id: int,
+        notas: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        if solicitante_id == propietario_id:
+            return False, "No puede solicitar un prestamo de su propio vehiculo."
+
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 1
+            FROM usuarios_vehiculos
+            WHERE usuario_id=? AND vehiculo_id=?
+        """, (propietario_id, vehiculo_id))
+        if not cur.fetchone():
+            conn.close()
+            return False, "El vehiculo no esta asignado al usuario seleccionado."
+
+        cur.execute("""
+            SELECT 1
+            FROM usuarios_vehiculos
+            WHERE usuario_id=? AND vehiculo_id=?
+        """, (solicitante_id, vehiculo_id))
+        if cur.fetchone():
+            conn.close()
+            return False, "El vehiculo ya esta asignado al solicitante."
+
+        cur.execute("""
+            SELECT COUNT(*) AS total
+            FROM prestamos_vehiculos
+            WHERE solicitante_id=? AND propietario_id=? AND vehiculo_id=? AND estado='PENDIENTE'
+        """, (solicitante_id, propietario_id, vehiculo_id))
+        if cur.fetchone()["total"] > 0:
+            conn.close()
+            return False, "Ya existe una solicitud pendiente para este vehiculo."
+
+        cur.execute("""
+            INSERT INTO prestamos_vehiculos (
+                solicitante_id, propietario_id, vehiculo_id, fecha_solicitud, estado, notas
+            ) VALUES (?, ?, ?, ?, 'PENDIENTE', ?)
+        """, (
+            solicitante_id,
+            propietario_id,
+            vehiculo_id,
+            _hoy_iso(),
+            notas.strip() if notas else None,
+        ))
+        conn.commit()
+        conn.close()
+        return True, "Solicitud de prestamo registrada."
+
     def listar_responsables(self) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
@@ -959,7 +1152,7 @@ class DatabaseManager:
         receptor_nombre: str,
         firma_recepcion: str,
         observaciones: str,
-        resguardante_id: int,
+        resguardante_id: Optional[int],
         vehiculo_id: int,
         responsable_usuario_id: int,
         no_pasajeros: int,
@@ -970,7 +1163,6 @@ class DatabaseManager:
         fecha_solicitud: Optional[str] = None,
     ) -> Tuple[bool, Dict]:
         requeridos = [
-            ("resguardante", resguardante_id),
             ("vehiculo", vehiculo_id),
             ("responsable", responsable_usuario_id),
             ("pasajeros", no_pasajeros),
@@ -984,20 +1176,27 @@ class DatabaseManager:
                 return False, {"mensaje": f"Falta el dato de {clave}."}
             if isinstance(valor, list) and not valor:
                 return False, {"mensaje": f"Falta el dato de {clave}."}
-        if motivo_salida not in {"Notificación de Oficio", "Revisión de Auditoría"}:
+        motivos_validos = {
+            "Notificación de Oficio",
+            "Revisión de Auditoría",
+            "Entrega de Recepción",
+            "Compulsas",
+            "Inspección Física",
+        }
+        if motivo_salida not in motivos_validos:
             return False, {"mensaje": "Motivo de salida no valido."}
 
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
             SELECT id, nombre
-            FROM resguardantes
+            FROM usuarios
             WHERE id=? AND activo=1
-        """, (resguardante_id,))
+        """, (usuario_id,))
         resguardante = cur.fetchone()
         if not resguardante:
             conn.close()
-            return False, {"mensaje": "Resguardante no encontrado."}
+            return False, {"mensaje": "Usuario no encontrado para resguardo."}
 
         cur.execute("""
             SELECT id, placa, modelo, marca

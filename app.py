@@ -163,8 +163,8 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
             if (vehiculo.get("placa") or "").upper() in item_siglas
         ]
     usuarios = db_manager.listar_usuarios()
-    resguardantes = db_manager.listar_resguardantes()
     entes = db_manager.listar_entes()
+    vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id)
     movimientos = db_manager.listar_movimientos(usuario_id=usuario_id)
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
@@ -174,8 +174,8 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
         "movimientos": alertas,
         "vehiculos": vehiculos,
         "usuarios": usuarios,
-        "resguardantes": resguardantes,
         "entes": entes,
+        "vehiculos_prestables": vehiculos_prestables,
         "items": items,
         "today": date.today().isoformat(),
     }
@@ -295,7 +295,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         item_id = request.form.get("item_id")
         cantidad = request.form.get("cantidad") or "1"
         vehiculo_id = request.form.get("vehiculo_id")
-        resguardante_id = request.form.get("resguardante_id")
         responsable_usuario_id = request.form.get("responsable_usuario_id")
         no_pasajeros_txt = request.form.get("no_pasajeros", "").strip()
         pasajeros_ids = [pid for pid in request.form.getlist("pasajeros_ids") if pid]
@@ -304,15 +303,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         tipo_notificacion_id = request.form.get("tipo_notificacion_id")
         observaciones = request.form.get("observaciones")
         fecha = request.form.get("fecha_solicitud")
-
-        if not resguardante_id or not resguardante_id.isdigit():
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                error="Falta seleccionar al resguardante.",
-                **context,
-            )
 
         if not vehiculo_id or not vehiculo_id.isdigit():
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
@@ -376,7 +366,13 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
 
-        motivos_validos = {"Notificación de Oficio", "Revisión de Auditoría"}
+        motivos_validos = {
+            "Notificación de Oficio",
+            "Revisión de Auditoría",
+            "Entrega de Recepción",
+            "Compulsas",
+            "Inspección Física",
+        }
         if motivo not in motivos_validos:
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
             return render_template(
@@ -433,7 +429,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             "",
             None,
             observaciones,
-            int(resguardante_id),
+            None,
             int(vehiculo_id),
             int(responsable_usuario_id),
             int(no_pasajeros),
@@ -454,6 +450,49 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             )
 
         return redirect(url_for("reporte_movimiento", mov_id=data["movimiento_id"]))
+
+    @app.route("/prestamos/solicitar", methods=["POST"])
+    def solicitar_prestamo():
+        if not session.get("autenticado"):
+            return redirect(url_for("login"))
+        if session.get("rol") != "user":
+            return redirect(url_for("dashboard"))
+
+        raw_val = request.form.get("prestamo_vehiculo", "")
+        notas = request.form.get("prestamo_notas")
+        if ":" not in raw_val:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="Seleccione el vehiculo y propietario para el prestamo.",
+                **context,
+            )
+
+        vehiculo_txt, propietario_txt = raw_val.split(":", 1)
+        if not vehiculo_txt.isdigit() or not propietario_txt.isdigit():
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="Seleccion no valida para el prestamo.",
+                **context,
+            )
+
+        ok, mensaje = db_manager.solicitar_prestamo(
+            session.get("usuario_id"),
+            int(propietario_txt),
+            int(vehiculo_txt),
+            notas,
+        )
+        context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+        return render_template(
+            "dashboard.html",
+            usuario=session.get("nombre"),
+            prestamo_ok=mensaje if ok else None,
+            prestamo_error=None if ok else mensaje,
+            **context,
+        )
 
     @app.route("/gestor")
     def gestor():

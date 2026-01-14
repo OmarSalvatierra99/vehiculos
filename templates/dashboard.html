@@ -45,15 +45,7 @@
         </label>
         <label class="full">
           Nombre del resguardante
-          <select name="resguardante_id" required>
-            {% if resguardantes %}
-              {% for resguardante in resguardantes %}
-              <option value="{{ resguardante.id }}">{{ resguardante.nombre }}</option>
-              {% endfor %}
-            {% else %}
-              <option value="" disabled selected>No hay resguardantes registrados</option>
-            {% endif %}
-          </select>
+          <input type="text" value="{{ usuario }}" readonly>
         </label>
       </fieldset>
 
@@ -64,7 +56,7 @@
           <select name="responsable_usuario_id" required>
             {% if usuarios %}
               {% for usuario in usuarios %}
-              <option value="{{ usuario.id }}">{{ usuario.nombre }}</option>
+              <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
               {% endfor %}
             {% else %}
               <option value="" disabled selected>No hay usuarios registrados</option>
@@ -85,7 +77,7 @@
             <select name="pasajeros_ids" id="pasajeros_ids" multiple hidden required>
               {% if usuarios %}
                 {% for usuario in usuarios %}
-                <option value="{{ usuario.id }}">{{ usuario.nombre }}</option>
+                <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
                 {% endfor %}
               {% else %}
                 <option value="" disabled>No hay usuarios registrados</option>
@@ -114,7 +106,7 @@
             <select name="ruta_destinos" id="ruta_destinos" multiple hidden required>
               {% if entes %}
                 {% for ente in entes %}
-                <option value="{{ ente.clave }}">{{ ente.nombre }}{% if ente.siglas %} ({{ ente.siglas }}){% endif %}</option>
+                <option value="{{ ente.clave }}" data-siglas="{{ ente.siglas or '' }}" data-clave="{{ ente.clave }}">{{ ente.nombre }}{% if ente.siglas %} ({{ ente.siglas }}){% endif %}</option>
                 {% endfor %}
               {% else %}
                 <option value="" disabled>No hay destinos registrados</option>
@@ -133,6 +125,9 @@
           <select name="motivo_salida" required>
             <option value="Notificación de Oficio">Notificación de Oficio</option>
             <option value="Revisión de Auditoría">Revisión de Auditoría</option>
+            <option value="Entrega de Recepción">Entrega de Recepción</option>
+            <option value="Compulsas">Compulsas</option>
+            <option value="Inspección Física">Inspección Física</option>
           </select>
         </label>
       </fieldset>
@@ -141,6 +136,45 @@
         <button class="btn primary" type="submit">Registrar solicitud y generar reporte</button>
       </div>
     </form>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <h2>Prestamo entre usuarios</h2>
+      <p class="subtitle">Solicite una unidad asignada a otro responsable.</p>
+    </div>
+    <form method="post" action="{{ url_for('solicitar_prestamo') }}" class="form-sections">
+      {% if prestamo_error %}
+      <div class="alert full">{{ prestamo_error }}</div>
+      {% endif %}
+      {% if prestamo_ok %}
+      <div class="alert full">{{ prestamo_ok }}</div>
+      {% endif %}
+      <fieldset class="form-section">
+        <legend>Unidad</legend>
+        <label class="full">
+          Vehiculo asignado
+          <select name="prestamo_vehiculo" required>
+            {% if vehiculos_prestables %}
+              {% for vehiculo in vehiculos_prestables %}
+              <option value="{{ vehiculo.id }}:{{ vehiculo.propietario_id }}">
+                [{{ vehiculo.placa }}] {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietario_nombre }}
+              </option>
+              {% endfor %}
+            {% else %}
+              <option value="" disabled selected>No hay vehiculos prestables</option>
+            {% endif %}
+          </select>
+        </label>
+        <label class="full">
+          Motivo del prestamo (opcional)
+          <textarea name="prestamo_notas" rows="3" placeholder="Detalle breve de la solicitud"></textarea>
+        </label>
+      </fieldset>
+      <div class="actions full">
+        <button class="btn ghost" type="submit">Enviar solicitud de prestamo</button>
+      </div>
+    </form>
+  </div>
 </section>
 
 <script>
@@ -216,7 +250,12 @@
       const normalizedTerm = term.toLowerCase().trim();
       return allOptions.filter(opt => {
         const isSelected = opt.selected;
-        const matchesSearch = opt.textContent.toLowerCase().includes(normalizedTerm);
+        const label = opt.textContent.toLowerCase();
+        const siglas = (opt.dataset.siglas || "").toLowerCase();
+        const clave = (opt.dataset.clave || "").toLowerCase();
+        const matchesSearch = label.includes(normalizedTerm)
+          || siglas.includes(normalizedTerm)
+          || clave.includes(normalizedTerm);
         return !isSelected && (normalizedTerm === "" || matchesSearch);
       });
     };
