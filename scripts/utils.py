@@ -1156,7 +1156,11 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(destino, ' -> ')
                        FROM (
-                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
+                           SELECT CASE
+                               WHEN e2.siglas IS NOT NULL AND e2.siglas != ''
+                               THEN e2.nombre || ' (' || e2.siglas || ')'
+                               ELSE COALESCE(e2.nombre, md.ente_clave)
+                           END AS destino
                            FROM movimientos_destinos md
                            LEFT JOIN entes e2 ON e2.clave = md.ente_clave
                            WHERE md.movimiento_id = m.id
@@ -1213,7 +1217,11 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(destino, ' -> ')
                        FROM (
-                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
+                           SELECT CASE
+                               WHEN e2.siglas IS NOT NULL AND e2.siglas != ''
+                               THEN e2.nombre || ' (' || e2.siglas || ')'
+                               ELSE COALESCE(e2.nombre, md.ente_clave)
+                           END AS destino
                            FROM movimientos_destinos md
                            LEFT JOIN entes e2 ON e2.clave = md.ente_clave
                            WHERE md.movimiento_id = m.id
