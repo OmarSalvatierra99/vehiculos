@@ -277,7 +277,7 @@
         return;
       }
 
-      options.slice(0, 10).forEach((option, index) => {
+      options.forEach((option, index) => {
         const item = document.createElement("button");
         item.type = "button";
         item.className = "combobox-item";
@@ -292,13 +292,6 @@
 
         dropdown.appendChild(item);
       });
-
-      if (allOptions.length > 10) {
-        const moreInfo = document.createElement("div");
-        moreInfo.className = "combobox-item combobox-info";
-        moreInfo.textContent = `Mostrando ${Math.min(10, options.length)} de ${options.length} resultados`;
-        dropdown.appendChild(moreInfo);
-      }
 
       dropdown.hidden = false;
     };

@@ -4,6 +4,23 @@
 
 {% block content %}
 <section class="card report">
+  <div class="report-doc-header">
+    <div class="report-doc-logo">
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo institucional">
+    </div>
+    <div class="report-doc-title">
+      <div class="report-doc-name">MANUAL DE PROCEDIMIENTO DE CONTROL</div>
+      <div class="report-doc-tags">
+        <span class="report-doc-tag">Dirección</span>
+        <span class="report-doc-tag">Proceso</span>
+        <span class="report-doc-tag">Subporoceso</span>
+      </div>
+    </div>
+    <div class="report-doc-key">
+      <span>Clave del documento</span>
+      <strong>DA-RMS-SU-01</strong>
+    </div>
+  </div>
   <div class="report-header">
     <h2>Solicitud de unidades</h2>
     <p class="subtitle">Salida programada: {{ fecha_larga }}</p>
@@ -24,14 +41,6 @@
     <div class="report-block">
       <span class="report-label">Vehiculo solicitado</span>
       <strong>[{{ movimiento.sigla }}] {{ movimiento.item_nombre }}</strong>
-    </div>
-    <div class="report-block">
-      <span class="report-label">Tipo de notificacion</span>
-      <strong>{{ movimiento.tipo_notificacion or "No registrada" }}</strong>
-    </div>
-    <div class="report-block">
-      <span class="report-label">Cantidad</span>
-      <strong>{{ movimiento.cantidad }}</strong>
     </div>
     <div class="report-block">
       <span class="report-label">Placa de la unidad</span>

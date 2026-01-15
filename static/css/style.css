@@ -801,6 +801,75 @@ textarea {
   text-transform: none;
 }
 
+.report-doc-header {
+  display: grid;
+  grid-template-columns: 120px 1fr 180px;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+
+.report-doc-logo {
+  display: grid;
+  place-items: center;
+}
+
+.report-doc-logo img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+}
+
+.report-doc-title {
+  display: grid;
+  gap: 10px;
+  text-align: center;
+}
+
+.report-doc-name {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+}
+
+.report-doc-tags {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.report-doc-tag {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-dark);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: #f6f3ee;
+}
+
+.report-doc-key {
+  border: 1px solid var(--ink);
+  padding: 10px 12px;
+  text-align: center;
+  display: grid;
+  gap: 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.report-doc-key strong {
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+}
+
 .report-header h2 {
   margin-bottom: 6px;
 }
@@ -874,6 +943,21 @@ textarea {
   .gov-topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .report-doc-header {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .report-doc-logo img {
+    width: 80px;
+    height: 80px;
+  }
+
+  .report-doc-key {
+    justify-self: center;
+    width: min(220px, 100%);
   }
 
   .gov-header {
