@@ -22,17 +22,11 @@
     </div>
   </div>
   <div class="report-header">
-    <h2>Solicitud de unidades</h2>
-    <p class="subtitle">Salida programada: {{ fecha_larga }}</p>
+    <h2>SOLICITUD DE UNIDADES</h2>
+    <p class="report-subtitle">DIRECCION DE AUDITORIA A ENTES ESTATALES</p>
+    <p class="report-subtitle">VEHICULOS REQUERIDOS PARA SALIDA DEL DIA {{ fecha_larga }}</p>
+    <p class="report-warning">ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MAS DE 5 OCUPANTES</p>
   </div>
-  {% if can_print %}
-  <div class="actions">
-    <button class="btn primary" type="button" onclick="window.print()">Imprimir reporte</button>
-  </div>
-  {% else %}
-  <div class="alert">Solo el administrador puede imprimir este reporte.</div>
-  {% endif %}
-
   <div class="report-grid">
     <div class="report-block">
       <span class="report-label">Ente solicitante</span>
@@ -80,13 +74,17 @@
     </div>
   </div>
 
-  <div class="report-note">
-    Esta estrictamente prohibido que en vehiculo oficial viajen mas de 5 ocupantes.
-  </div>
-
   <div class="signature">
     <span class="report-label">Autorizacion del director</span>
     <div class="signature-line"></div>
   </div>
+
+  {% if can_print %}
+  <div class="actions report-actions">
+    <button class="btn primary" type="button" onclick="window.print()">Imprimir reporte</button>
+  </div>
+  {% else %}
+  <div class="alert">Solo el administrador puede imprimir este reporte.</div>
+  {% endif %}
 </section>
 {% endblock %}

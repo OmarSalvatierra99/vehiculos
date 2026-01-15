@@ -144,7 +144,9 @@ def _filtrar_vehiculos(items: List[dict]) -> List[dict]:
 
 def _normalizar_rol(rol: str) -> str:
     rol_txt = (rol or "").strip().lower()
-    if rol_txt in {"gestor", "monitor", "admin", "administrador"}:
+    if rol_txt == "monitor":
+        return "monitor"
+    if rol_txt in {"gestor", "admin", "administrador"}:
         return "admin"
     if rol_txt in {"usuario", "user"}:
         return "user"
@@ -252,7 +254,12 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "autenticado": True,
             })
 
-            destino = "admin" if rol == "admin" else "dashboard"
+            if rol == "admin":
+                destino = "admin"
+            elif rol == "monitor":
+                destino = "admin"
+            else:
+                destino = "dashboard"
             return redirect(url_for(destino))
         return render_template("login.html")
 
@@ -267,7 +274,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/dashboard")
     def dashboard():
-        if session.get("rol") == "admin":
+        if session.get("rol") in {"admin", "monitor"}:
             return redirect(url_for("admin"))
 
         context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
@@ -275,10 +282,15 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/admin")
     def admin():
-        if session.get("rol") != "admin":
+        if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
         context = _build_admin_context(app, db_manager)
-        return render_template("admin.html", usuario=session.get("nombre"), **context)
+        return render_template(
+            "admin.html",
+            usuario=session.get("nombre"),
+            rol=session.get("rol"),
+            **context,
+        )
 
     @app.route("/monitoreo")
     def monitoreo():
@@ -536,6 +548,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "admin.html",
                 **_build_admin_context(app, db_manager),
                 usuario=session.get("nombre"),
+                rol=session.get("rol"),
                 error=mensaje,
             )
 
@@ -543,7 +556,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/movimientos/<int:mov_id>/entregar", methods=["POST"])
     def movimientos_entregar(mov_id: int):
-        if session.get("rol") != "admin":
+        if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
         db_manager.marcar_entregado(mov_id, session.get("usuario_id"))
         return redirect(url_for("admin"))
@@ -576,6 +589,25 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             movimiento=movimiento,
             fecha_larga=fecha_larga,
             can_print=can_print,
+        )
+
+    @app.route("/reporte-diario")
+    def reporte_diario():
+        if not session.get("autenticado"):
+            return redirect(url_for("login"))
+        if session.get("rol") != "monitor":
+            return redirect(url_for("admin"))
+        fecha = request.args.get("fecha") or date.today().isoformat()
+        movimientos = db_manager.listar_movimientos_entregados(
+            session.get("usuario_id"),
+            fecha,
+        )
+        fecha_larga = _fecha_larga_es(fecha)
+        return render_template(
+            "reporte_diario.html",
+            movimientos=movimientos,
+            fecha_larga=fecha_larga,
+            can_print=True,
         )
 
 

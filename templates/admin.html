@@ -64,8 +64,15 @@
 
 <section class="card">
   <div class="card-header">
-    <h2>Movimientos y reportes</h2>
-    <p class="subtitle">Seguimiento de estatus y generacion de reportes.</p>
+    <div>
+      <h2>Movimientos y reportes</h2>
+      <p class="subtitle">Seguimiento de estatus y generacion de reportes.</p>
+    </div>
+    {% if rol == "monitor" %}
+    <div class="actions-inline">
+      <a class="btn ghost" href="{{ url_for('reporte_diario') }}">Reporte del dia</a>
+    </div>
+    {% endif %}
   </div>
   {% if movimientos %}
   <div class="table table-7">
@@ -76,7 +83,7 @@
       <span>Solicitud</span>
       <span>Entrega</span>
       <span>Estatus</span>
-      <span>Reporte</span>
+      <span>{% if rol == "monitor" %}Validar{% else %}Reporte{% endif %}</span>
     </div>
     {% for mov in movimientos %}
     <div class="table-row">
@@ -97,7 +104,17 @@
         {% endif %}
       </span>
       <span class="actions-inline">
-        <a class="btn ghost" href="{{ url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+        {% if rol == "monitor" %}
+          {% if mov.data.fecha_entrega %}
+            <span class="badge success">Validado</span>
+          {% else %}
+            <form method="post" action="{{ url_for('movimientos_entregar', mov_id=mov.data.id) }}">
+              <button class="btn ghost btn-small" type="submit">Validar</button>
+            </form>
+          {% endif %}
+        {% else %}
+          <a class="btn ghost" href="{{ url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+        {% endif %}
       </span>
     </div>
     {% endfor %}

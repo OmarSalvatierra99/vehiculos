@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}REPORTE DIARIO · INVENTARIO VEHICULAR{% endblock %}
+
+{% block content %}
+<section class="card report">
+  <div class="report-doc-header">
+    <div class="report-doc-logo">
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo institucional">
+    </div>
+    <div class="report-doc-title">
+      <div class="report-doc-name">MANUAL DE PROCEDIMIENTO DE CONTROL</div>
+      <div class="report-doc-tags">
+        <span class="report-doc-tag">Dirección</span>
+        <span class="report-doc-tag">Proceso</span>
+        <span class="report-doc-tag">Subporoceso</span>
+      </div>
+    </div>
+    <div class="report-doc-key">
+      <span>Clave del documento</span>
+      <strong>DA-RMS-SU-01</strong>
+    </div>
+  </div>
+  <div class="report-header">
+    <h2>REPORTE GENERAL DEL DIA</h2>
+    <p class="report-subtitle">DIRECCION DE AUDITORIA A ENTES ESTATALES</p>
+    <p class="report-subtitle">VEHICULOS REQUERIDOS PARA SALIDA DEL DIA {{ fecha_larga }}</p>
+    <p class="report-warning">ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MAS DE 5 OCUPANTES</p>
+  </div>
+
+  {% if movimientos %}
+  <div class="table table-6">
+    <div class="table-row header">
+      <span>Folio</span>
+      <span>Ente</span>
+      <span>Unidad</span>
+      <span>Placa</span>
+      <span>Responsable</span>
+      <span>Ruta</span>
+    </div>
+    {% for mov in movimientos %}
+    <div class="table-row">
+      <span class="mono">{{ mov.folio }}</span>
+      <span>{{ mov.ente_nombre or mov.ente_clave }}</span>
+      <span>[{{ mov.sigla }}] {{ mov.item_nombre }}</span>
+      <span>{{ mov.placa_unidad }}</span>
+      <span>{{ mov.responsable_vehiculo }}</span>
+      <span>{{ mov.ruta_destino }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Sin movimientos validados para este dia.</p>
+  {% endif %}
+
+  <div class="signature">
+    <span class="report-label">Autorizacion del director</span>
+    <div class="signature-line"></div>
+  </div>
+
+  {% if can_print %}
+  <div class="actions report-actions">
+    <button class="btn primary" type="button" onclick="window.print()">Imprimir reporte</button>
+  </div>
+  {% else %}
+  <div class="alert">Solo el administrador puede imprimir este reporte.</div>
+  {% endif %}
+</section>
+{% endblock %}

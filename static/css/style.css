@@ -872,6 +872,37 @@ textarea {
 
 .report-header h2 {
   margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: center;
+  font-style: italic;
+  text-decoration: underline;
+}
+
+.report-subtitle {
+  margin: 0;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+  text-align: center;
+  font-style: italic;
+  text-decoration: underline;
+}
+
+.report-warning {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed #b07b2a;
+  background: #f6f0e5;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: #6b5534;
+  text-align: center;
+  font-style: italic;
+  text-decoration: none;
 }
 
 .report-grid {
@@ -912,12 +943,18 @@ textarea {
   margin-top: 30px;
   display: grid;
   gap: 10px;
+  justify-items: center;
+  text-align: center;
 }
 
 .signature-line {
   height: 36px;
   border-bottom: 2px solid var(--ink);
   width: min(420px, 100%);
+}
+
+.report-actions {
+  margin-top: 22px;
 }
 
 @keyframes rise {
@@ -936,6 +973,34 @@ textarea {
   .card,
   .page-header {
     animation: none;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .page,
+  .content,
+  .content-inner {
+    padding: 0;
+  }
+
+  .page > *,
+  .content > *,
+  .content-inner > * {
+    display: none !important;
+  }
+
+  .report {
+    display: block !important;
+    box-shadow: none;
+    border: none;
+  }
+
+  .report-actions {
+    display: none !important;
   }
 }
 

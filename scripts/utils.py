@@ -1285,6 +1285,62 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def listar_movimientos_entregados(self, usuario_id: int, fecha_iso: str) -> List[Dict]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT m.id, m.folio, m.ente_clave, m.fecha_solicitud,
+                   m.fecha_entrega, m.fecha_devolucion, m.cantidad,
+                   m.receptor_nombre, m.firma_recepcion, m.no_inventario,
+                   m.devuelto, m.observaciones, m.resguardante_nombre,
+                   COALESCE(m.placa_unidad, v.placa) AS placa_unidad,
+                   COALESCE(m.marca, v.marca) AS marca,
+                   COALESCE(m.modelo, v.modelo) AS modelo,
+                   COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
+                   m.vehiculo_id, m.responsable_id, m.tipo_notificacion_id,
+                   m.no_pasajeros,
+                   COALESCE((
+                       SELECT group_concat(nombre, ', ')
+                       FROM (
+                           SELECT u2.nombre AS nombre
+                           FROM movimientos_pasajeros mp
+                           JOIN usuarios u2 ON u2.id = mp.usuario_id
+                           WHERE mp.movimiento_id = m.id
+                           ORDER BY u2.nombre
+                       )
+                   ), "") AS pasajeros_nombres,
+                   COALESCE((
+                       SELECT group_concat(destino, ' -> ')
+                       FROM (
+                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
+                           FROM movimientos_destinos md
+                           LEFT JOIN entes e2 ON e2.clave = md.ente_clave
+                           WHERE md.movimiento_id = m.id
+                           ORDER BY md.orden
+                       )
+                   ), m.ruta_destino) AS ruta_destino,
+                   m.motivo_salida,
+                   e.nombre AS ente_nombre,
+                   i.sigla, i.nombre AS item_nombre, i.categoria,
+                   n.nombre AS tipo_notificacion,
+                   u.nombre AS usuario_nombre
+            FROM movimientos m
+            JOIN inventario_items i ON i.id = m.item_id
+            JOIN usuarios u ON u.id = m.usuario_id
+            LEFT JOIN entes e ON e.clave = m.ente_clave
+            LEFT JOIN notificaciones n ON n.id = m.tipo_notificacion_id
+            LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
+            LEFT JOIN usuarios uresp ON uresp.id = m.responsable_id
+            JOIN movimientos_eventos me ON me.movimiento_id = m.id
+            WHERE me.evento = 'ENTREGADO'
+              AND me.usuario_id = ?
+              AND me.fecha = ?
+            ORDER BY m.created_at DESC
+        """, (usuario_id, fecha_iso))
+        data = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return data
+
     def obtener_movimiento(self, movimiento_id: int) -> Optional[Dict]:
         conn = self._connect()
         cur = conn.cursor()
