@@ -32,6 +32,7 @@ def _normalizar_clave(valor: str) -> str:
     return ascii_txt
 
 
+
 def _parse_date(valor: Optional[str]) -> Optional[str]:
     if not valor:
         return None
@@ -80,9 +81,9 @@ ENTES_MANUALES = [
     "CASA DE LAS ARTESANÍAS DE TLAXCALA",
     "PROCURADURÍA DE PROTECCIÓN AL AMBIENTE DEL ESTADO DE TLAXCALA",
     "INSTITUTO DE FAUNA SILVESTRE PARA EL ESTADO DE TLAXCALA",
-    "OFICIALIA MAYOR DE GOBIERNO",
+    "OFICIALÍA MAYOR DE GOBIERNO",
     "SECRETARÍA DE FINANZAS",
-    "SECRETARÍA DE DESARROLLO ECONOMICO",
+    "SECRETARÍA DE DESARROLLO ECONÓMICO",
     "SECRETARÍA DE TURISMO",
     "SECRETARÍA DE INFRAESTRUCTURA",
     "SECRETARÍA DE EDUCACIÓN PÚBLICA",
@@ -99,10 +100,10 @@ ENTES_MANUALES = [
     "INSTITUTO TLAXCALTECA DE LA INFRAESTRUCTURA FÍSICA EDUCATIVA",
     "PODER LEGISLATIVO DEL ESTADO DE TLAXCALA",
     "INSTITUTO TLAXCALTECA DE LA JUVENTUD",
-    "INSTITUTO TLAXCALTECA PARA LA EDUCACIÓN DE LOS ADULTOS, ITEA",
-    "ÓRGANISMO PÚBLICO DESCENTRALIZADO SALUD DE TLAXCALA",
+    "INSTITUTO TLAXCALTECA PARA LA EDUCACIÓN DE LOS ADULTOS",
+    "ORGANISMO PÚBLICO DESCENTRALIZADO SALUD DE TLAXCALA",
     "PATRONATO CENTRO DE REHABILITACIÓN INTEGRAL Y ESCUELA EN TERAPIA FÍSICA Y REHABILITACIÓN",
-    "PATRONATO \"LA LIBERTAD CENTRO CULTURAL DE APIZACO\"",
+    "PATRONATO “LA LIBERTAD CENTRO CULTURAL DE APIZACO”",
     "PENSIONES CIVILES DEL ESTADO DE TLAXCALA",
     "SISTEMA ESTATAL PARA EL DESARROLLO INTEGRAL DE LA FAMILIA",
     "UNIDAD DE SERVICIOS EDUCATIVOS DEL ESTADO DE TLAXCALA",
@@ -111,7 +112,7 @@ ENTES_MANUALES = [
     "PODER JUDICIAL DEL ESTADO DE TLAXCALA",
     "UNIVERSIDAD TECNOLÓGICA DE TLAXCALA",
     "UNIVERSIDAD INTERCULTURAL DE TLAXCALA",
-    "ARCHIVO GENERAL E HISTORICO DEL ESTADO DE TLAXCALA",
+    "ARCHIVO GENERAL E HISTÓRICO DEL ESTADO DE TLAXCALA",
     "TRIBUNAL DE JUSTICIA ADMINISTRATIVA DEL ESTADO DE TLAXCALA",
     "UNIVERSIDAD AUTÓNOMA DE TLAXCALA",
     "COMISIÓN ESTATAL DE DERECHOS HUMANOS",
@@ -121,7 +122,7 @@ ENTES_MANUALES = [
     "TRIBUNAL ELECTORAL DE TLAXCALA",
     "CENTRO DE CONCILIACIÓN LABORAL DEL ESTADO DE TLAXCALA",
     "FISCALÍA GENERAL DE JUSTICIA DEL ESTADO DE TLAXCALA",
-    "SECRETARIA EJECUTIVA DEL SISTEMA ANTICORRUPCIÓN DEL ESTADO DE TLAXCALA",
+    "SECRETARÍA EJECUTIVA DEL SISTEMA ANTICORRUPCIÓN DEL ESTADO DE TLAXCALA",
     "PATRONATO PARA LAS EXPOSICIONES Y FERIAS EN LA CIUDAD DE TLAXCALA",
     "COMISIÓN ESTATAL DEL AGUA Y SANEAMIENTO DEL ESTADO DE TLAXCALA",
     "COLEGIO DE BACHILLERES DEL ESTADO DE TLAXCALA",
@@ -213,8 +214,6 @@ class DatabaseManager:
         self._init_db()
         self._ensure_usuarios_columns()
         self._ensure_movimientos_columns()
-        self._ensure_entes_columns()
-        self._seed_catalogos()
         self._seed_usuarios()
         self._seed_inventario()
         self._seed_vehiculos()
@@ -243,13 +242,18 @@ class DatabaseManager:
                 activo INTEGER DEFAULT 1
             );
 
+            CREATE TABLE IF NOT EXISTS usuarios_personal (
+                resguardante_id INTEGER NOT NULL,
+                personal_id INTEGER NOT NULL,
+                PRIMARY KEY (resguardante_id, personal_id),
+                FOREIGN KEY(resguardante_id) REFERENCES usuarios(id),
+                FOREIGN KEY(personal_id) REFERENCES usuarios(id)
+            );
+
             CREATE TABLE IF NOT EXISTS entes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                num TEXT,
                 clave TEXT UNIQUE NOT NULL,
                 nombre TEXT NOT NULL,
-                siglas TEXT,
-                direccion TEXT,
                 tipo TEXT NOT NULL,
                 activo INTEGER DEFAULT 1
             );
@@ -391,16 +395,6 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-    def _ensure_entes_columns(self) -> None:
-        conn = self._connect()
-        cur = conn.cursor()
-        cur.execute("PRAGMA table_info(entes)")
-        existentes = {row["name"] for row in cur.fetchall()}
-        if "direccion" not in existentes:
-            cur.execute("ALTER TABLE entes ADD COLUMN direccion TEXT")
-        conn.commit()
-        conn.close()
-
     def _ensure_usuarios_columns(self) -> None:
         conn = self._connect()
         cur = conn.cursor()
@@ -434,121 +428,6 @@ class DatabaseManager:
         for nombre, tipo in columnas:
             if nombre not in existentes:
                 cur.execute(f"ALTER TABLE movimientos ADD COLUMN {nombre} {tipo}")
-        conn.commit()
-        conn.close()
-
-    def _seed_catalogos(self):
-        entes = []
-        municipios = []
-        if not self.catalogos_dir.exists():
-            logger.warning("Directorio de catálogos no encontrado: %s", self.catalogos_dir)
-        else:
-            try:
-                from openpyxl import load_workbook
-            except ImportError:
-                logger.warning("openpyxl no está instalado; omitiendo carga de catálogos.")
-                load_workbook = None
-            if load_workbook:
-                def cargar_archivo(nombre: str, tipo: str):
-                    path = self.catalogos_dir / nombre
-                    if not path.exists():
-                        logger.warning("Catálogo no encontrado: %s", path)
-                        return []
-
-                    wb = load_workbook(path, read_only=True, data_only=True)
-                    ws = wb[wb.sheetnames[0]]
-                    rows = ws.iter_rows(min_row=1, values_only=True)
-                    headers = next(rows, [])
-                    header_map = {
-                        _normalizar_header(h): idx
-                        for idx, h in enumerate(headers or [])
-                        if h
-                    }
-
-                    def get_val(row, keys):
-                        for key in keys:
-                            for h, idx in header_map.items():
-                                if key in h:
-                                    return row[idx]
-                        return None
-
-                    datos = []
-                    for row in rows:
-                        clave = get_val(row, ["CLAVE"])
-                        nombre_val = get_val(row, ["NOMBRE"])
-                        if not clave or not nombre_val:
-                            continue
-                        datos.append({
-                            "num": get_val(row, ["NUM"]),
-                            "clave": str(clave).strip(),
-                            "nombre": str(nombre_val).strip(),
-                            "siglas": (get_val(row, ["SIGLA"]) or "").strip(),
-                            "direccion": (get_val(row, ["DIRECCION", "DOMICILIO"]) or "").strip(),
-                            "tipo": tipo,
-                        })
-                    return datos
-
-                entes = cargar_archivo("Estatales.xlsx", "ENTE")
-                municipios = cargar_archivo("Municipales.xlsx", "MUNICIPIO")
-
-        claves_usadas = {row["clave"] for row in entes + municipios if row.get("clave")}
-
-        def _build_manual_rows(nombres: List[str], tipo: str) -> List[Dict]:
-            rows = []
-            vistos = set()
-            for nombre in nombres:
-                nombre_txt = str(nombre).strip()
-                if not nombre_txt:
-                    continue
-                nombre_key = nombre_txt.upper()
-                if nombre_key in vistos:
-                    continue
-                vistos.add(nombre_key)
-                clave_base = _normalizar_clave(nombre_txt)
-                clave = clave_base
-                counter = 2
-                while not clave or clave in claves_usadas:
-                    clave = f"{clave_base}_{counter}"
-                    counter += 1
-                claves_usadas.add(clave)
-                rows.append({
-                    "num": None,
-                    "clave": clave,
-                    "nombre": nombre_txt,
-                    "siglas": "",
-                    "direccion": "",
-                    "tipo": tipo,
-                })
-            return rows
-
-        entes_manual = _build_manual_rows(ENTES_MANUALES, "ENTE")
-        municipios_manual = _build_manual_rows(MUNICIPIOS_MANUALES, "MUNICIPIO")
-
-        if not entes and not municipios and not entes_manual and not municipios_manual:
-            return
-
-        conn = self._connect()
-        cur = conn.cursor()
-        cur.execute("SELECT clave, nombre FROM entes")
-        existentes_por_nombre = {
-            (row["nombre"] or "").strip().upper(): row["clave"]
-            for row in cur.fetchall()
-        }
-        for row in entes + municipios + entes_manual + municipios_manual:
-            nombre_key = (row.get("nombre") or "").strip().upper()
-            if nombre_key in existentes_por_nombre:
-                row["clave"] = existentes_por_nombre[nombre_key]
-            cur.execute("""
-                INSERT INTO entes (num, clave, nombre, siglas, direccion, tipo, activo)
-                VALUES (?, ?, ?, ?, ?, ?, 1)
-                ON CONFLICT(clave) DO UPDATE SET
-                    num=excluded.num,
-                    nombre=excluded.nombre,
-                    siglas=excluded.siglas,
-                    direccion=excluded.direccion,
-                    tipo=excluded.tipo,
-                    activo=1
-            """, (row["num"], row["clave"], row["nombre"], row["siglas"], row["direccion"], row["tipo"]))
         conn.commit()
         conn.close()
 
@@ -689,24 +568,45 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT num, clave, nombre, siglas, direccion, tipo
+            SELECT clave, nombre, tipo
             FROM entes
             WHERE activo=1
-            ORDER BY num, nombre
+            ORDER BY nombre
         """)
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
         return data
 
-    def listar_usuarios(self) -> List[Dict]:
+    def listar_usuarios(self, resguardante_id: Optional[int] = None) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT id, nombre, usuario, rol, puesto
-            FROM usuarios
-            WHERE activo=1
-            ORDER BY nombre
-        """)
+        if resguardante_id:
+            cur.execute("""
+                SELECT usuario
+                FROM usuarios
+                WHERE id=?
+            """, (resguardante_id,))
+            row = cur.fetchone()
+            if row and (row["usuario"] or "").lower() in {"luis", "odilia"}:
+                resguardante_id = None
+
+        if resguardante_id:
+            cur.execute("""
+                SELECT u.id, u.nombre, u.usuario, u.rol, u.puesto
+                FROM usuarios u
+                JOIN usuarios_personal up ON up.personal_id = u.id
+                WHERE up.resguardante_id=?
+                  AND u.activo=1
+                  AND u.id != ?
+                ORDER BY u.nombre
+            """, (resguardante_id, resguardante_id))
+        else:
+            cur.execute("""
+                SELECT id, nombre, usuario, rol, puesto
+                FROM usuarios
+                WHERE activo=1
+                ORDER BY nombre
+            """)
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
         return data
@@ -1283,7 +1183,7 @@ class DatabaseManager:
                 resguardante_nombre, resguardante_id, placa_unidad, marca, modelo,
                 responsable_vehiculo, vehiculo_id, responsable_id, tipo_notificacion_id,
                 no_pasajeros, ruta_destino, motivo_salida
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             folio,
             item_id,
@@ -1355,11 +1255,7 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(destino, ' -> ')
                        FROM (
-                           SELECT CASE
-                               WHEN e2.siglas IS NOT NULL AND e2.siglas != ''
-                               THEN e2.nombre || ' (' || e2.siglas || ')'
-                               ELSE COALESCE(e2.nombre, md.ente_clave)
-                           END AS destino
+                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
                            FROM movimientos_destinos md
                            LEFT JOIN entes e2 ON e2.clave = md.ente_clave
                            WHERE md.movimiento_id = m.id
@@ -1367,7 +1263,7 @@ class DatabaseManager:
                        )
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
-                   e.nombre AS ente_nombre, e.siglas AS ente_siglas,
+                   e.nombre AS ente_nombre,
                    i.sigla, i.nombre AS item_nombre, i.categoria,
                    n.nombre AS tipo_notificacion,
                    u.nombre AS usuario_nombre
@@ -1416,11 +1312,7 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(destino, ' -> ')
                        FROM (
-                           SELECT CASE
-                               WHEN e2.siglas IS NOT NULL AND e2.siglas != ''
-                               THEN e2.nombre || ' (' || e2.siglas || ')'
-                               ELSE COALESCE(e2.nombre, md.ente_clave)
-                           END AS destino
+                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
                            FROM movimientos_destinos md
                            LEFT JOIN entes e2 ON e2.clave = md.ente_clave
                            WHERE md.movimiento_id = m.id
@@ -1430,9 +1322,8 @@ class DatabaseManager:
                    m.motivo_salida,
                    i.sigla, i.nombre AS item_nombre, i.categoria,
                    u.nombre AS usuario_nombre,
-                   e.nombre AS ente_nombre, e.siglas AS ente_siglas,
-                   n.nombre AS tipo_notificacion,
-                   e.direccion AS ente_direccion
+                   e.nombre AS ente_nombre,
+                   n.nombre AS tipo_notificacion
             FROM movimientos m
             JOIN inventario_items i ON i.id = m.item_id
             JOIN usuarios u ON u.id = m.usuario_id

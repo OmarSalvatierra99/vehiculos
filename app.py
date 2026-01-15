@@ -131,7 +131,6 @@ def _filtrar_entes(entes: List[dict], permitidos: List[str]) -> List[dict]:
     for ente in entes:
         claves = {
             (ente.get("clave") or "").upper(),
-            (ente.get("siglas") or "").upper(),
             (ente.get("nombre") or "").upper(),
         }
         if claves & permitidos:
@@ -162,7 +161,7 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
             for vehiculo in vehiculos
             if (vehiculo.get("placa") or "").upper() in item_siglas
         ]
-    usuarios = db_manager.listar_usuarios()
+    usuarios = db_manager.listar_usuarios(resguardante_id=usuario_id)
     entes = db_manager.listar_entes()
     vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id)
     movimientos = db_manager.listar_movimientos(usuario_id=usuario_id)
@@ -337,6 +336,14 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="El numero de pasajeros debe ser mayor a cero.",
+                **context,
+            )
+        if no_pasajeros > 4:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="El numero de pasajeros no puede exceder 4 (maximo 5 ocupantes incluyendo al conductor).",
                 **context,
             )
 

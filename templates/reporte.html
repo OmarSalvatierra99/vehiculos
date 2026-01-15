@@ -19,11 +19,7 @@
   <div class="report-grid">
     <div class="report-block">
       <span class="report-label">Ente solicitante</span>
-      <strong>{{ movimiento.ente_siglas or movimiento.ente_nombre or movimiento.ente_clave }}</strong>
-    </div>
-    <div class="report-block">
-      <span class="report-label">Direccion del ente solicitante</span>
-      <strong>{{ movimiento.ente_direccion or "No registrada" }}</strong>
+      <strong>{{ movimiento.ente_nombre or movimiento.ente_clave }}</strong>
     </div>
     <div class="report-block">
       <span class="report-label">Vehiculo solicitado</span>
@@ -76,7 +72,7 @@
   </div>
 
   <div class="report-note">
-    Maximo 5 ocupantes en vehiculo oficial.
+    ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MÁS DE 5 OCUPANTES
   </div>
 
   <div class="signature">

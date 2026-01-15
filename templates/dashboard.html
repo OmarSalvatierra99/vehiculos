@@ -90,7 +90,8 @@
               <span class="chip-empty">Ningún pasajero seleccionado</span>
             </div>
           </div>
-          <p class="hint">Seleccione exactamente el mismo numero de pasajeros indicado.</p>
+          <p class="hint">No incluye al conductor. Maximo 4 pasajeros (5 ocupantes con conductor). Seleccione exactamente el mismo numero de pasajeros indicado.</p>
+          <p class="hint form-uppercase">ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MÁS DE 5 OCUPANTES</p>
         </label>
       </fieldset>
 
@@ -106,7 +107,7 @@
             <select name="ruta_destinos" id="ruta_destinos" multiple hidden required>
               {% if entes %}
                 {% for ente in entes %}
-                <option value="{{ ente.clave }}" data-siglas="{{ ente.siglas or '' }}" data-clave="{{ ente.clave }}">{{ ente.nombre }}{% if ente.siglas %} ({{ ente.siglas }}){% endif %}</option>
+                <option value="{{ ente.clave }}" data-nombre="{{ ente.nombre }}">{{ ente.nombre }}</option>
                 {% endfor %}
               {% else %}
                 <option value="" disabled>No hay destinos registrados</option>
@@ -250,12 +251,8 @@
       const normalizedTerm = term.toLowerCase().trim();
       return allOptions.filter(opt => {
         const isSelected = opt.selected;
-        const label = opt.textContent.toLowerCase();
-        const siglas = (opt.dataset.siglas || "").toLowerCase();
-        const clave = (opt.dataset.clave || "").toLowerCase();
-        const matchesSearch = label.includes(normalizedTerm)
-          || siglas.includes(normalizedTerm)
-          || clave.includes(normalizedTerm);
+        const label = (opt.dataset.nombre || opt.textContent).toLowerCase().trim();
+        const matchesSearch = label.includes(normalizedTerm);
         return !isSelected && (normalizedTerm === "" || matchesSearch);
       });
     };
@@ -309,7 +306,12 @@
       searchInput.value = "";
       updateChips();
       updateCount();
-      hideDropdown();
+      const remaining = filterOptions(searchInput.value);
+      if (remaining.length) {
+        showDropdown(remaining);
+      } else {
+        hideDropdown();
+      }
       searchInput.focus();
     };
 
@@ -391,9 +393,9 @@
       const total = Number.parseInt(noPasajerosInput.value, 10);
       const seleccionados = pasajerosSelect.selectedOptions.length;
 
-      if (!Number.isFinite(total) || total <= 0 || total !== seleccionados) {
+      if (!Number.isFinite(total) || total <= 0 || total > 4 || total !== seleccionados) {
         event.preventDefault();
-        alert(`El número de pasajeros debe coincidir con los nombres seleccionados.\nIndicado: ${total}, Seleccionados: ${seleccionados}`);
+        alert(`El número de pasajeros debe ser de 1 a 4 y coincidir con los nombres seleccionados.\nIndicado: ${total}, Seleccionados: ${seleccionados}`);
       }
     });
   }
