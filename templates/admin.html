@@ -39,69 +39,6 @@
 
 <section class="grid">
   <div class="card">
-    <div class="card-header">
-      <h2>Registro de unidades</h2>
-      <p class="subtitle">Alta de vehiculos en inventario institucional.</p>
-    </div>
-    <form method="post" action="{{ url_for('inventario_nuevo') }}" class="form-grid">
-      {% if error %}
-      <div class="alert full">{{ error }}</div>
-      {% endif %}
-      <label>
-        Sigla
-        <input type="text" name="sigla" required>
-      </label>
-      <input type="hidden" name="categoria" value="VEHICULO">
-      <label class="full">
-        Nombre del vehiculo
-        <input type="text" name="nombre" required>
-      </label>
-      <label>
-        No. de inventario
-        <input type="text" name="no_inventario">
-      </label>
-      <label>
-        Stock total
-        <input type="number" name="stock_total" min="0" value="1" required>
-      </label>
-      <label class="full">
-        Descripcion
-        <textarea name="descripcion" rows="3"></textarea>
-      </label>
-      <div class="actions full">
-        <button class="btn primary" type="submit">Registrar vehiculo</button>
-      </div>
-    </form>
-  </div>
-
-  <div class="card">
-    <h2>Inventario por sigla</h2>
-    <p class="subtitle">Control de existencias por unidad oficial.</p>
-    {% if items %}
-    <div class="table table-4">
-      <div class="table-row header">
-        <span>Sigla</span>
-        <span>Vehiculo</span>
-        <span>Total</span>
-        <span>Disponible</span>
-      </div>
-      {% for item in items %}
-      <div class="table-row">
-        <span class="mono">{{ item.sigla }}</span>
-        <span>{{ item.nombre }}</span>
-        <span>{{ item.stock_total }}</span>
-        <span>{{ item.stock_disponible }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty">No hay unidades registradas.</p>
-    {% endif %}
-  </div>
-</section>
-
-<section class="grid">
-  <div class="card">
     <h2>Unidades registradas</h2>
     <p class="subtitle">Relacion oficial de placas activas.</p>
     {% if vehiculos %}

@@ -743,6 +743,29 @@ textarea {
   border: 1px solid #e2b8b4;
 }
 
+.passenger-note {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f6f1e6;
+  border: 1px solid #e2d2b7;
+  color: #6b5534;
+  display: grid;
+  gap: 6px;
+}
+
+.passenger-note strong {
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8a5d23;
+}
+
+.passenger-note p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
 .hint {
   margin-top: 18px;
   font-size: 0.85rem;
@@ -811,9 +834,9 @@ textarea {
   padding: 12px 14px;
   border-radius: 12px;
   background: #efe9de;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #6b5534;
 }
 
 .signature {

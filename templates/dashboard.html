@@ -65,16 +65,16 @@
         </label>
         <label>
           No. de pasajeros
-          <input type="text" name="no_pasajeros" id="no_pasajeros" inputmode="numeric" pattern="[0-9]+" required>
+          <input type="number" name="no_pasajeros" id="no_pasajeros" inputmode="numeric" min="0" max="4" step="1" value="4" required>
         </label>
         <label class="full">
           Nombre de los pasajeros
-          <div class="combobox-container">
+          <div class="combobox-container" id="pasajeros_container">
             <div class="combobox-search">
               <input type="search" id="pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar pasajeros..." autocomplete="off">
               <div id="pasajeros_dropdown" class="combobox-dropdown" hidden></div>
             </div>
-            <select name="pasajeros_ids" id="pasajeros_ids" multiple hidden required>
+            <select name="pasajeros_ids" id="pasajeros_ids" data-max="4" multiple hidden required>
               {% if usuarios %}
                 {% for usuario in usuarios %}
                 <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
@@ -90,8 +90,11 @@
               <span class="chip-empty">Ningún pasajero seleccionado</span>
             </div>
           </div>
-          <p class="hint">No incluye al conductor. Maximo 4 pasajeros (5 ocupantes con conductor). Seleccione exactamente el mismo numero de pasajeros indicado.</p>
-          <p class="hint form-uppercase">ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MÁS DE 5 OCUPANTES</p>
+          <div class="passenger-note">
+            <strong>Importante</strong>
+            <p>El conductor cuenta como pasajero. Seleccione exactamente el mismo numero indicado. Maximo 5 ocupantes en total.</p>
+            <p>Esta estrictamente prohibido que en vehiculo oficial viajen mas de 5 ocupantes.</p>
+          </div>
         </label>
       </fieldset>
 
@@ -200,6 +203,8 @@
     actualizarVehiculo();
   }
 
+  const MAX_PASAJEROS = 4;
+
   // Sistema de combobox mejorado para selección múltiple
   function setupCombobox(searchInputId, dropdownId, selectId, chipsId, countId) {
     const searchInput = document.getElementById(searchInputId);
@@ -213,6 +218,8 @@
     }
 
     const allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled);
+    const maxSelected = Number.parseInt(selectEl.dataset.max, 10);
+    const requiresPassengerLimit = selectEl.id === "pasajeros_ids";
     let focusedIndex = -1;
 
     const updateCount = () => {
@@ -302,6 +309,19 @@
     };
 
     const selectOption = (option) => {
+      let allowed = maxSelected;
+      if (requiresPassengerLimit) {
+        const allowedByInput = Number.parseInt(noPasajerosInput?.value, 10);
+        allowed = Number.isFinite(allowedByInput) ? Math.min(allowedByInput, maxSelected) : maxSelected;
+        if (!Number.isFinite(allowed) || allowed <= 0) {
+          alert("Indique al menos 1 pasajero para poder seleccionar nombres.");
+          return;
+        }
+      }
+      if (Number.isFinite(allowed) && selectEl.selectedOptions.length >= allowed) {
+        alert(`Solo puede seleccionar hasta ${allowed} pasajeros.`);
+        return;
+      }
       option.selected = true;
       searchInput.value = "";
       updateChips();
@@ -380,22 +400,68 @@
 
     updateChips();
     updateCount();
+
+    return { updateChips, updateCount, selectEl };
   }
 
   // Inicializar comboboxes
-  setupCombobox("pasajeros_search", "pasajeros_dropdown", "pasajeros_ids", "pasajeros_chips", "pasajeros_count");
-  setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");
+  const pasajerosCombobox = setupCombobox("pasajeros_search", "pasajeros_dropdown", "pasajeros_ids", "pasajeros_chips", "pasajeros_count");
+  const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");
 
   // Validación del formulario
   if (solicitudForm && noPasajerosInput) {
+    const pasajerosContainer = document.getElementById("pasajeros_container");
+    const clampPasajeros = () => {
+      const value = Number.parseInt(noPasajerosInput.value, 10);
+      if (!Number.isFinite(value)) {
+        noPasajerosInput.value = MAX_PASAJEROS;
+        return;
+      }
+      if (value > MAX_PASAJEROS) {
+        noPasajerosInput.value = MAX_PASAJEROS;
+      } else if (value < 0) {
+        noPasajerosInput.value = 0;
+      }
+    };
+
+    const enforcePassengerLimit = () => {
+      clampPasajeros();
+      const pasajerosSelect = document.getElementById("pasajeros_ids");
+      if (!pasajerosSelect) {
+        return;
+      }
+      const allowed = Number.parseInt(noPasajerosInput.value, 10);
+      if (!Number.isFinite(allowed)) {
+        return;
+      }
+      if (pasajerosContainer) {
+        pasajerosContainer.hidden = allowed === 0;
+      }
+      if (allowed === 0) {
+        Array.from(pasajerosSelect.selectedOptions).forEach(option => {
+          option.selected = false;
+        });
+      } else if (pasajerosSelect.selectedOptions.length > allowed) {
+        const selected = Array.from(pasajerosSelect.selectedOptions);
+        selected.slice(allowed).forEach(option => {
+          option.selected = false;
+        });
+      }
+      pasajerosCombobox?.updateChips();
+      pasajerosCombobox?.updateCount();
+    };
+
+    noPasajerosInput.addEventListener("input", enforcePassengerLimit);
+    enforcePassengerLimit();
+
     solicitudForm.addEventListener("submit", (event) => {
       const pasajerosSelect = document.getElementById("pasajeros_ids");
       const total = Number.parseInt(noPasajerosInput.value, 10);
       const seleccionados = pasajerosSelect.selectedOptions.length;
 
-      if (!Number.isFinite(total) || total <= 0 || total > 4 || total !== seleccionados) {
+      if (!Number.isFinite(total) || total < 0 || total > MAX_PASAJEROS || total !== seleccionados) {
         event.preventDefault();
-        alert(`El número de pasajeros debe ser de 1 a 4 y coincidir con los nombres seleccionados.\nIndicado: ${total}, Seleccionados: ${seleccionados}`);
+        alert(`El número de pasajeros debe ser de 0 a ${MAX_PASAJEROS} y coincidir con los nombres seleccionados.\nIndicado: ${total}, Seleccionados: ${seleccionados}`);
       }
     });
   }
