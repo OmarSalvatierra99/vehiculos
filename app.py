@@ -6,7 +6,7 @@ Control de vehiculos para auditoria institucional.
 
 import logging
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import List
@@ -478,6 +478,12 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return redirect(url_for("dashboard"))
 
         raw_val = request.form.get("prestamo_vehiculo", "")
+        responsable_usuario_id = request.form.get("prestamo_responsable_usuario_id")
+        no_pasajeros_txt = request.form.get("prestamo_no_pasajeros", "").strip()
+        pasajeros_ids = [pid for pid in request.form.getlist("prestamo_pasajeros_ids") if pid]
+        fechas_prestamo = [fecha for fecha in request.form.getlist("prestamo_fechas") if fecha]
+        ruta_destinos = [clave for clave in request.form.getlist("prestamo_ruta_destinos") if clave]
+        motivo = request.form.get("prestamo_motivo_salida", "").strip()
         notas = request.form.get("prestamo_notas")
         if ":" not in raw_val:
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
@@ -498,10 +504,126 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
 
+        if not responsable_usuario_id or not responsable_usuario_id.isdigit():
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="Falta seleccionar al responsable del vehiculo.",
+                **context,
+            )
+
+        if not no_pasajeros_txt.isdigit():
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="El numero de pasajeros debe ser numerico.",
+                **context,
+            )
+        no_pasajeros = int(no_pasajeros_txt)
+        if no_pasajeros < 0:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="El numero de pasajeros no puede ser menor a cero.",
+                **context,
+            )
+        if no_pasajeros > 4:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="El numero de pasajeros no puede exceder 4 (maximo 5 ocupantes incluyendo al conductor).",
+                **context,
+            )
+
+        if len(pasajeros_ids) != no_pasajeros:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="El numero de pasajeros debe coincidir con los nombres seleccionados.",
+                **context,
+            )
+        if any(not pid.isdigit() for pid in pasajeros_ids):
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="La lista de pasajeros no es valida.",
+                **context,
+            )
+
+        if not fechas_prestamo:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="Falta seleccionar al menos un dia para el prestamo.",
+                **context,
+            )
+        fechas_parsed = []
+        for fecha in fechas_prestamo:
+            try:
+                fechas_parsed.append(datetime.strptime(fecha, "%Y-%m-%d").date())
+            except ValueError:
+                context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+                return render_template(
+                    "dashboard.html",
+                    usuario=session.get("nombre"),
+                    prestamo_error="Formato de fecha no valido para el prestamo.",
+                    **context,
+                )
+        hoy = date.today()
+        lunes = hoy - timedelta(days=hoy.weekday())
+        viernes = lunes + timedelta(days=4)
+        for fecha in fechas_parsed:
+            if fecha < hoy or fecha < lunes or fecha > viernes or fecha.weekday() > 4:
+                context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+                return render_template(
+                    "dashboard.html",
+                    usuario=session.get("nombre"),
+                    prestamo_error="Las fechas deben estar dentro de la semana actual (lunes a viernes).",
+                    **context,
+                )
+
+        if not ruta_destinos:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="Falta seleccionar la ruta destino.",
+                **context,
+            )
+
+        motivos_validos = {
+            "Notificación de Oficio",
+            "Revisión de Auditoría",
+            "Entrega de Recepción",
+            "Compulsas",
+            "Inspección Física",
+        }
+        if motivo not in motivos_validos:
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                prestamo_error="El motivo de salida no es valido.",
+                **context,
+            )
+
         ok, mensaje = db_manager.solicitar_prestamo(
             session.get("usuario_id"),
             int(propietario_txt),
             int(vehiculo_txt),
+            int(responsable_usuario_id),
+            int(no_pasajeros),
+            [int(pid) for pid in pasajeros_ids],
+            [fecha.isoformat() for fecha in sorted(set(fechas_parsed))],
+            ruta_destinos,
+            motivo,
             notas,
         )
         context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))

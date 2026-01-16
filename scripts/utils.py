@@ -214,6 +214,7 @@ class DatabaseManager:
         self._init_db()
         self._ensure_usuarios_columns()
         self._ensure_movimientos_columns()
+        self._ensure_prestamos_columns()
         self._seed_usuarios()
         self._seed_inventario()
         self._seed_vehiculos()
@@ -387,6 +388,7 @@ class DatabaseManager:
                 fecha_solicitud TEXT NOT NULL,
                 estado TEXT NOT NULL DEFAULT 'PENDIENTE',
                 notas TEXT,
+                fechas_solicitadas TEXT,
                 FOREIGN KEY(solicitante_id) REFERENCES usuarios(id),
                 FOREIGN KEY(propietario_id) REFERENCES usuarios(id),
                 FOREIGN KEY(vehiculo_id) REFERENCES vehiculos(id)
@@ -428,6 +430,25 @@ class DatabaseManager:
         for nombre, tipo in columnas:
             if nombre not in existentes:
                 cur.execute(f"ALTER TABLE movimientos ADD COLUMN {nombre} {tipo}")
+        conn.commit()
+        conn.close()
+
+    def _ensure_prestamos_columns(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(prestamos_vehiculos)")
+        existentes = {row["name"] for row in cur.fetchall()}
+        columnas = [
+            ("responsable_id", "INTEGER"),
+            ("no_pasajeros", "INTEGER"),
+            ("pasajeros_ids", "TEXT"),
+            ("ruta_destino", "TEXT"),
+            ("motivo_salida", "TEXT"),
+            ("fechas_solicitadas", "TEXT"),
+        ]
+        for nombre, tipo in columnas:
+            if nombre not in existentes:
+                cur.execute(f"ALTER TABLE prestamos_vehiculos ADD COLUMN {nombre} {tipo}")
         conn.commit()
         conn.close()
 
@@ -899,16 +920,38 @@ class DatabaseManager:
         cur = conn.cursor()
         cur.execute("""
             SELECT v.id, v.placa, v.modelo, v.marca,
-                   u.id AS propietario_id, u.nombre AS propietario_nombre
+                   u.id AS propietario_id, u.nombre AS propietario_nombre,
+                   mu.fecha_entrega AS fecha_en_uso
             FROM vehiculos v
             JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
             JOIN usuarios u ON u.id = uv.usuario_id
+            LEFT JOIN (
+                SELECT vehiculo_id, MAX(fecha_entrega) AS fecha_entrega
+                FROM movimientos
+                WHERE fecha_entrega IS NOT NULL AND devuelto=0
+                GROUP BY vehiculo_id
+            ) mu ON mu.vehiculo_id = v.id
             WHERE v.activo=1
               AND u.activo=1
               AND uv.usuario_id != ?
             ORDER BY u.nombre, v.placa
         """, (solicitante_id,))
-        data = [dict(r) for r in cur.fetchall()]
+        data = []
+        for row in cur.fetchall():
+            item = dict(row)
+            en_uso = False
+            dias_en_uso = None
+            fecha_en_uso = item.get("fecha_en_uso")
+            if fecha_en_uso:
+                try:
+                    fecha_dt = datetime.strptime(fecha_en_uso, "%Y-%m-%d").date()
+                    dias_en_uso = max((date.today() - fecha_dt).days, 0)
+                    en_uso = True
+                except ValueError:
+                    en_uso = True
+            item["en_uso"] = en_uso
+            item["dias_en_uso"] = dias_en_uso
+            data.append(item)
         conn.close()
         return data
 
@@ -917,10 +960,61 @@ class DatabaseManager:
         solicitante_id: int,
         propietario_id: int,
         vehiculo_id: int,
+        responsable_usuario_id: int,
+        no_pasajeros: int,
+        pasajeros_ids: List[int],
+        fechas_solicitadas: List[str],
+        ruta_destinos: List[str],
+        motivo_salida: str,
         notas: Optional[str] = None,
+        fecha_solicitud: Optional[str] = None,
     ) -> Tuple[bool, str]:
         if solicitante_id == propietario_id:
             return False, "No puede solicitar un prestamo de su propio vehiculo."
+
+        requeridos = [
+            ("vehiculo", vehiculo_id),
+            ("responsable", responsable_usuario_id),
+            ("pasajeros", no_pasajeros),
+            ("fechas", fechas_solicitadas),
+            ("ruta", ruta_destinos),
+            ("motivo", motivo_salida),
+        ]
+        if int(no_pasajeros) > 0:
+            requeridos.append(("nombres_pasajeros", pasajeros_ids))
+        for clave, valor in requeridos:
+            if valor is None or (isinstance(valor, str) and not valor.strip()):
+                return False, f"Falta el dato de {clave}."
+            if isinstance(valor, list) and not valor:
+                return False, f"Falta el dato de {clave}."
+        motivos_validos = {
+            "Notificación de Oficio",
+            "Revisión de Auditoría",
+            "Entrega de Recepción",
+            "Compulsas",
+            "Inspección Física",
+        }
+        if motivo_salida not in motivos_validos:
+            return False, "Motivo de salida no valido."
+
+        fechas_limpias = []
+        for fecha in fechas_solicitadas:
+            fecha_txt = _parse_date(fecha)
+            if not fecha_txt:
+                return False, "Formato de fecha no valido para el prestamo."
+            try:
+                fechas_limpias.append(datetime.strptime(fecha_txt, "%Y-%m-%d").date())
+            except ValueError:
+                return False, "Formato de fecha no valido para el prestamo."
+        if not fechas_limpias:
+            return False, "Falta seleccionar al menos una fecha."
+        hoy = date.today()
+        lunes = hoy - timedelta(days=hoy.weekday())
+        viernes = lunes + timedelta(days=4)
+        for fecha in fechas_limpias:
+            if fecha < hoy or fecha < lunes or fecha > viernes or fecha.weekday() > 4:
+                return False, "Las fechas deben estar dentro de la semana actual (lunes a viernes)."
+        fechas_txt = ",".join([fecha.isoformat() for fecha in sorted(set(fechas_limpias))])
 
         conn = self._connect()
         cur = conn.cursor()
@@ -943,6 +1037,73 @@ class DatabaseManager:
             return False, "El vehiculo ya esta asignado al solicitante."
 
         cur.execute("""
+            SELECT fecha_entrega
+            FROM movimientos
+            WHERE vehiculo_id=?
+              AND fecha_entrega IS NOT NULL
+              AND devuelto=0
+            ORDER BY fecha_entrega DESC
+            LIMIT 1
+        """, (vehiculo_id,))
+        ocupacion = cur.fetchone()
+        if ocupacion:
+            fecha_en_uso = ocupacion["fecha_entrega"]
+            dias_txt = ""
+            try:
+                fecha_dt = datetime.strptime(fecha_en_uso, "%Y-%m-%d").date()
+                dias = max((date.today() - fecha_dt).days, 0)
+                dias_txt = f" ({dias} dias)"
+            except ValueError:
+                dias_txt = ""
+            conn.close()
+            return False, f"El vehiculo esta ocupado desde {fecha_en_uso}.{dias_txt}"
+
+        cur.execute("""
+            SELECT 1
+            FROM usuarios
+            WHERE id=? AND activo=1
+        """, (responsable_usuario_id,))
+        if not cur.fetchone():
+            conn.close()
+            return False, "Responsable no encontrado."
+
+        pasajeros_ids = [int(pid) for pid in pasajeros_ids if pid]
+        if int(no_pasajeros) == 0:
+            pasajeros_ids = []
+        if pasajeros_ids:
+            if len(pasajeros_ids) != len(set(pasajeros_ids)):
+                conn.close()
+                return False, "Pasajeros duplicados en la seleccion."
+            placeholders = ",".join(["?"] * len(pasajeros_ids))
+            cur.execute(f"""
+                SELECT id
+                FROM usuarios
+                WHERE id IN ({placeholders}) AND activo=1
+            """, pasajeros_ids)
+            pasajeros = cur.fetchall()
+            if len(pasajeros) != len(set(pasajeros_ids)):
+                conn.close()
+                return False, "Pasajeros no encontrados."
+        if int(no_pasajeros) != len(pasajeros_ids):
+            conn.close()
+            return False, "El numero de pasajeros no coincide."
+
+        destinos = [clave.strip().upper() for clave in ruta_destinos if clave and clave.strip()]
+        if not destinos:
+            conn.close()
+            return False, "Falta el dato de ruta."
+        placeholders_dest = ",".join(["?"] * len(destinos))
+        cur.execute(f"""
+            SELECT clave
+            FROM entes
+            WHERE clave IN ({placeholders_dest}) AND activo=1
+        """, destinos)
+        entes_validos = {row["clave"] for row in cur.fetchall()}
+        if entes_validos != set(destinos):
+            conn.close()
+            return False, "Destinos no encontrados en catalogo de entes."
+
+        cur.execute("""
             SELECT COUNT(*) AS total
             FROM prestamos_vehiculos
             WHERE solicitante_id=? AND propietario_id=? AND vehiculo_id=? AND estado='PENDIENTE'
@@ -953,14 +1114,21 @@ class DatabaseManager:
 
         cur.execute("""
             INSERT INTO prestamos_vehiculos (
-                solicitante_id, propietario_id, vehiculo_id, fecha_solicitud, estado, notas
-            ) VALUES (?, ?, ?, ?, 'PENDIENTE', ?)
+                solicitante_id, propietario_id, vehiculo_id, fecha_solicitud, estado, notas,
+                responsable_id, no_pasajeros, pasajeros_ids, ruta_destino, motivo_salida, fechas_solicitadas
+            ) VALUES (?, ?, ?, ?, 'PENDIENTE', ?, ?, ?, ?, ?, ?, ?)
         """, (
             solicitante_id,
             propietario_id,
             vehiculo_id,
-            _hoy_iso(),
+            _parse_date(fecha_solicitud) or _hoy_iso(),
             notas.strip() if notas else None,
+            int(responsable_usuario_id),
+            int(no_pasajeros),
+            ",".join([str(pid) for pid in pasajeros_ids]) if pasajeros_ids else None,
+            " -> ".join(destinos),
+            motivo_salida.strip(),
+            fechas_txt,
         ))
         conn.commit()
         conn.close()

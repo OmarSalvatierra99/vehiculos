@@ -146,7 +146,7 @@
       <h2>Prestamo entre usuarios</h2>
       <p class="subtitle">Solicite una unidad asignada a otro responsable.</p>
     </div>
-    <form method="post" action="{{ url_for('solicitar_prestamo') }}" class="form-sections">
+    <form method="post" action="{{ url_for('solicitar_prestamo') }}" class="form-sections prestamo-form">
       {% if prestamo_error %}
       <div class="alert full">{{ prestamo_error }}</div>
       {% endif %}
@@ -157,11 +157,17 @@
         <legend>Unidad</legend>
         <label class="full">
           Vehiculo solicitado
-          <select name="prestamo_vehiculo" required>
+          <select name="prestamo_vehiculo" id="prestamo_vehiculo" required>
             {% if vehiculos_prestables %}
+              <option value="" disabled selected>Seleccione un vehiculo disponible</option>
               {% for vehiculo in vehiculos_prestables %}
-              <option value="{{ vehiculo.id }}:{{ vehiculo.propietario_id }}">
-                [{{ vehiculo.placa }}] · {{ vehiculo.propietario_nombre }}
+              <option value="{{ vehiculo.id }}:{{ vehiculo.propietario_id }}"
+                data-marca="{{ vehiculo.marca }}"
+                data-modelo="{{ vehiculo.modelo }}"
+                data-placa="{{ vehiculo.placa }}"
+                data-propietario="{{ vehiculo.propietario_nombre }}"
+                {% if vehiculo.en_uso %}disabled{% endif %}>
+                [{{ vehiculo.placa }}] · {{ vehiculo.propietario_nombre }}{% if vehiculo.en_uso %} · Ocupado{% if vehiculo.dias_en_uso is not none %} hace {{ vehiculo.dias_en_uso }} dias{% endif %}{% endif %}
               </option>
               {% endfor %}
             {% else %}
@@ -169,6 +175,131 @@
             {% endif %}
           </select>
         </label>
+        <div class="full unit-summary" id="prestamo_unidad_resumen">
+          <div>
+            <span class="summary-label">Unidad seleccionada</span>
+            <strong id="prestamo_unidad_placa">Seleccione una unidad</strong>
+          </div>
+          <div>
+            <span class="summary-label">Marca y modelo</span>
+            <strong id="prestamo_unidad_modelo">-</strong>
+          </div>
+          <div>
+            <span class="summary-label">Responsable actual</span>
+            <strong id="prestamo_unidad_propietario">-</strong>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <legend>Fechas</legend>
+        <div class="full week-picker">
+          <div class="week-picker-header">
+            <div>
+              <span class="summary-label">Semana actual</span>
+              <strong id="prestamo_week_range">-</strong>
+            </div>
+            <label class="week-toggle">
+              <input type="checkbox" id="prestamo_week_all">
+              Pedir toda la semana
+            </label>
+          </div>
+          <div id="prestamo_fechas_list" class="week-chips"></div>
+          <div class="multi-select-meta">
+            <span id="prestamo_fechas_count" class="multi-count">0 seleccionados</span>
+            <span class="multi-hint">Solo dias habiles de la semana actual.</span>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <legend>Personal</legend>
+        <label class="full">
+          Responsable del vehiculo
+          <select name="prestamo_responsable_usuario_id" required>
+            {% if usuarios %}
+              {% for usuario in usuarios %}
+              <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
+              {% endfor %}
+            {% else %}
+              <option value="" disabled selected>No hay usuarios registrados</option>
+            {% endif %}
+          </select>
+        </label>
+        <label>
+          No. de pasajeros
+          <input type="number" name="prestamo_no_pasajeros" id="prestamo_no_pasajeros" inputmode="numeric" min="0" max="4" step="1" value="4" required>
+        </label>
+        <label class="full">
+          Nombre de los pasajeros
+          <div class="combobox-container" id="prestamo_pasajeros_container">
+            <div class="combobox-search">
+              <input type="search" id="prestamo_pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar pasajeros..." autocomplete="off">
+              <div id="prestamo_pasajeros_dropdown" class="combobox-dropdown" hidden></div>
+            </div>
+            <select name="prestamo_pasajeros_ids" id="prestamo_pasajeros_ids" data-max="4" multiple hidden>
+              {% if usuarios %}
+                {% for usuario in usuarios %}
+                <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>No hay usuarios registrados</option>
+              {% endif %}
+            </select>
+            <div class="combobox-meta">
+              <span id="prestamo_pasajeros_count" class="multi-count">0 seleccionados</span>
+            </div>
+            <div id="prestamo_pasajeros_chips" class="combobox-chips" aria-live="polite">
+              <span class="chip-empty">Ningún pasajero seleccionado</span>
+            </div>
+          </div>
+          <div class="passenger-note">
+            <strong>Importante</strong>
+            <p>El conductor cuenta como pasajero. Seleccione exactamente el mismo numero indicado. Maximo 5 ocupantes en total.</p>
+            <p>Esta estrictamente prohibido que en vehiculo oficial viajen mas de 5 ocupantes.</p>
+          </div>
+        </label>
+      </fieldset>
+
+      <fieldset class="form-section">
+        <legend>Ruta y motivo</legend>
+        <label class="full">
+          Ruta - destino
+          <div class="combobox-container">
+            <div class="combobox-search">
+              <input type="search" id="prestamo_ruta_search" class="combobox-input" placeholder="Buscar destino o dependencia..." autocomplete="off">
+              <div id="prestamo_ruta_dropdown" class="combobox-dropdown" hidden></div>
+            </div>
+            <select name="prestamo_ruta_destinos" id="prestamo_ruta_destinos" multiple hidden required>
+              {% if entes %}
+                {% for ente in entes %}
+                <option value="{{ ente.clave }}" data-nombre="{{ ente.nombre }}">{{ ente.nombre }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>No hay destinos registrados</option>
+              {% endif %}
+            </select>
+            <div class="combobox-meta">
+              <span id="prestamo_ruta_count" class="multi-count">0 seleccionados</span>
+            </div>
+            <div id="prestamo_ruta_chips" class="combobox-chips" aria-live="polite">
+              <span class="chip-empty">Ningún destino seleccionado</span>
+            </div>
+          </div>
+        </label>
+        <label class="full">
+          Motivo de salida
+          <select name="prestamo_motivo_salida" required>
+            <option value="Notificación de Oficio">Notificación de Oficio</option>
+            <option value="Revisión de Auditoría">Revisión de Auditoría</option>
+            <option value="Entrega de Recepción">Entrega de Recepción</option>
+            <option value="Compulsas">Compulsas</option>
+            <option value="Inspección Física">Inspección Física</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset class="form-section">
         <label class="full">
           Motivo del prestamo (opcional)
           <textarea name="prestamo_notas" rows="3" placeholder="Detalle breve de la solicitud"></textarea>
@@ -186,27 +317,197 @@
   const marcaInput = document.getElementById("marca_unidad");
   const modeloInput = document.getElementById("modelo_unidad");
   const noPasajerosInput = document.getElementById("no_pasajeros");
-  const solicitudForm = document.querySelector("form.form-sections");
+  const solicitudForm = document.querySelector("form.form-sections:not(.prestamo-form)");
+  const prestamoVehiculoSelect = document.getElementById("prestamo_vehiculo");
+  const prestamoUnidadPlaca = document.getElementById("prestamo_unidad_placa");
+  const prestamoUnidadModelo = document.getElementById("prestamo_unidad_modelo");
+  const prestamoUnidadPropietario = document.getElementById("prestamo_unidad_propietario");
+  const prestamoNoPasajerosInput = document.getElementById("prestamo_no_pasajeros");
+  const prestamoForm = document.querySelector("form.prestamo-form");
 
   // Actualizar marca y modelo cuando se selecciona un vehículo
-  const actualizarVehiculo = () => {
-    const selected = vehiculoSelect?.selectedOptions?.[0];
+  const actualizarVehiculo = (selectEl, marcaEl, modeloEl, propietarioEl) => {
+    const selected = selectEl?.selectedOptions?.[0];
     if (!selected) {
       return;
     }
-    marcaInput.value = selected.dataset.marca || "";
-    modeloInput.value = selected.dataset.modelo || "";
+    if (marcaEl) {
+      marcaEl.value = selected.dataset.marca || "";
+    }
+    if (modeloEl) {
+      modeloEl.value = selected.dataset.modelo || "";
+    }
+    if (propietarioEl) {
+      propietarioEl.value = selected.dataset.propietario || "";
+    }
   };
 
   if (vehiculoSelect) {
-    vehiculoSelect.addEventListener("change", actualizarVehiculo);
-    actualizarVehiculo();
+    vehiculoSelect.addEventListener("change", () => actualizarVehiculo(vehiculoSelect, marcaInput, modeloInput));
+    actualizarVehiculo(vehiculoSelect, marcaInput, modeloInput);
   }
+
+  if (prestamoVehiculoSelect) {
+    prestamoVehiculoSelect.addEventListener("change", () => actualizarVehiculo(
+      prestamoVehiculoSelect,
+      null,
+      null,
+      null,
+    ));
+    actualizarVehiculo(
+      prestamoVehiculoSelect,
+      null,
+      null,
+      null,
+    );
+  }
+
+  const updatePrestamoResumen = () => {
+    if (!prestamoVehiculoSelect) {
+      return;
+    }
+    const selected = prestamoVehiculoSelect.selectedOptions?.[0];
+    if (!selected) {
+      prestamoUnidadPlaca.textContent = "Seleccione una unidad";
+      prestamoUnidadModelo.textContent = "-";
+      prestamoUnidadPropietario.textContent = "-";
+      return;
+    }
+    prestamoUnidadPlaca.textContent = selected.dataset.placa || "Unidad seleccionada";
+    const marca = selected.dataset.marca || "-";
+    const modelo = selected.dataset.modelo || "-";
+    prestamoUnidadModelo.textContent = `${marca} ${modelo}`.trim();
+    prestamoUnidadPropietario.textContent = selected.dataset.propietario || "-";
+  };
+
+  if (prestamoVehiculoSelect) {
+    prestamoVehiculoSelect.addEventListener("change", updatePrestamoResumen);
+    updatePrestamoResumen();
+  }
+
+  const weekRangeEl = document.getElementById("prestamo_week_range");
+  const weekList = document.getElementById("prestamo_fechas_list");
+  const weekAll = document.getElementById("prestamo_week_all");
+  const weekCount = document.getElementById("prestamo_fechas_count");
+
+  const formatDateLabel = (dt) => {
+    const dias = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
+    const meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+    return `${dias[dt.getDay()]} ${dt.getDate()} ${meses[dt.getMonth()]}`;
+  };
+
+  const isoDate = (dt) => {
+    const year = dt.getFullYear();
+    const month = String(dt.getMonth() + 1).padStart(2, "0");
+    const day = String(dt.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const buildWeekPicker = () => {
+    if (!weekList || !weekRangeEl) {
+      return;
+    }
+    weekList.innerHTML = "";
+    const today = new Date();
+    const day = today.getDay();
+    const diffToMonday = (day + 6) % 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - diffToMonday);
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    const start = new Date(today);
+
+    weekRangeEl.textContent = `${formatDateLabel(monday)} - ${formatDateLabel(friday)}`;
+
+    if (start > friday) {
+      const empty = document.createElement("span");
+      empty.className = "chip-empty";
+      empty.textContent = "No hay dias habiles disponibles en la semana actual.";
+      weekList.appendChild(empty);
+      if (weekAll) {
+        weekAll.checked = false;
+        weekAll.disabled = true;
+      }
+      return;
+    }
+
+    for (let dt = new Date(start); dt <= friday; dt.setDate(dt.getDate() + 1)) {
+      if (dt.getDay() === 0 || dt.getDay() === 6) {
+        continue;
+      }
+      const label = document.createElement("label");
+      label.className = "week-chip";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "prestamo_fechas";
+      input.value = isoDate(dt);
+      const text = document.createElement("span");
+      text.textContent = formatDateLabel(dt);
+      label.appendChild(input);
+      label.appendChild(text);
+      weekList.appendChild(label);
+    }
+    if (weekAll) {
+      weekAll.disabled = false;
+    }
+  };
+
+  const refreshWeekToggle = () => {
+    if (!weekAll || !weekList) {
+      return;
+    }
+    const inputs = Array.from(weekList.querySelectorAll("input[type='checkbox']"));
+    if (!inputs.length) {
+      weekAll.checked = false;
+      weekAll.disabled = true;
+      return;
+    }
+    weekAll.checked = inputs.every(input => input.checked);
+  };
+
+  const updateWeekCount = () => {
+    if (!weekList || !weekCount) {
+      return;
+    }
+    const selected = weekList.querySelectorAll("input[type='checkbox']:checked").length;
+    weekCount.textContent = `${selected} seleccionado${selected !== 1 ? "s" : ""}`;
+    refreshWeekToggle();
+  };
+
+  if (weekList) {
+    weekList.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target && target.matches("input[type='checkbox']")) {
+        const label = target.closest(".week-chip");
+        if (label) {
+          label.classList.toggle("is-selected", target.checked);
+        }
+        updateWeekCount();
+      }
+    });
+  }
+
+  if (weekAll && weekList) {
+    weekAll.addEventListener("change", () => {
+      const checks = weekList.querySelectorAll("input[type='checkbox']");
+      checks.forEach((input) => {
+        input.checked = weekAll.checked;
+        const label = input.closest(".week-chip");
+        if (label) {
+          label.classList.toggle("is-selected", input.checked);
+        }
+      });
+      updateWeekCount();
+    });
+  }
+
+  buildWeekPicker();
+  updateWeekCount();
 
   const MAX_PASAJEROS = 4;
 
   // Sistema de combobox mejorado para selección múltiple
-  function setupCombobox(searchInputId, dropdownId, selectId, chipsId, countId) {
+  function setupCombobox(searchInputId, dropdownId, selectId, chipsId, countId, passengerLimitInput) {
     const searchInput = document.getElementById(searchInputId);
     const dropdown = document.getElementById(dropdownId);
     const selectEl = document.getElementById(selectId);
@@ -219,7 +520,7 @@
 
     const allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled);
     const maxSelected = Number.parseInt(selectEl.dataset.max, 10);
-    const requiresPassengerLimit = selectEl.id === "pasajeros_ids";
+    const requiresPassengerLimit = Boolean(passengerLimitInput);
     let focusedIndex = -1;
 
     const updateCount = () => {
@@ -304,7 +605,7 @@
     const selectOption = (option) => {
       let allowed = maxSelected;
       if (requiresPassengerLimit) {
-        const allowedByInput = Number.parseInt(noPasajerosInput?.value, 10);
+        const allowedByInput = Number.parseInt(passengerLimitInput?.value, 10);
         allowed = Number.isFinite(allowedByInput) ? Math.min(allowedByInput, maxSelected) : maxSelected;
         if (!Number.isFinite(allowed) || allowed <= 0) {
           alert("Indique al menos 1 pasajero para poder seleccionar nombres.");
@@ -398,32 +699,56 @@
   }
 
   // Inicializar comboboxes
-  const pasajerosCombobox = setupCombobox("pasajeros_search", "pasajeros_dropdown", "pasajeros_ids", "pasajeros_chips", "pasajeros_count");
+  const pasajerosCombobox = setupCombobox(
+    "pasajeros_search",
+    "pasajeros_dropdown",
+    "pasajeros_ids",
+    "pasajeros_chips",
+    "pasajeros_count",
+    noPasajerosInput,
+  );
   const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");
+  const prestamoPasajerosCombobox = setupCombobox(
+    "prestamo_pasajeros_search",
+    "prestamo_pasajeros_dropdown",
+    "prestamo_pasajeros_ids",
+    "prestamo_pasajeros_chips",
+    "prestamo_pasajeros_count",
+    prestamoNoPasajerosInput,
+  );
+  const prestamoRutaCombobox = setupCombobox(
+    "prestamo_ruta_search",
+    "prestamo_ruta_dropdown",
+    "prestamo_ruta_destinos",
+    "prestamo_ruta_chips",
+    "prestamo_ruta_count",
+  );
 
-  // Validación del formulario
-  if (solicitudForm && noPasajerosInput) {
-    const pasajerosContainer = document.getElementById("pasajeros_container");
+  const setupPassengerValidation = (formEl, pasajerosInput, pasajerosSelectId, pasajerosCombobox, containerId) => {
+    if (!formEl || !pasajerosInput) {
+      return;
+    }
+    const pasajerosContainer = document.getElementById(containerId);
     const clampPasajeros = () => {
-      const value = Number.parseInt(noPasajerosInput.value, 10);
+      const value = Number.parseInt(pasajerosInput.value, 10);
       if (!Number.isFinite(value)) {
-        noPasajerosInput.value = MAX_PASAJEROS;
+        pasajerosInput.value = MAX_PASAJEROS;
         return;
       }
       if (value > MAX_PASAJEROS) {
-        noPasajerosInput.value = MAX_PASAJEROS;
+        pasajerosInput.value = MAX_PASAJEROS;
       } else if (value < 0) {
-        noPasajerosInput.value = 0;
+        pasajerosInput.value = 0;
       }
     };
 
     const enforcePassengerLimit = () => {
       clampPasajeros();
-      const pasajerosSelect = document.getElementById("pasajeros_ids");
+      const pasajerosSelect = document.getElementById(pasajerosSelectId);
       if (!pasajerosSelect) {
         return;
       }
-      const allowed = Number.parseInt(noPasajerosInput.value, 10);
+      const allowed = Number.parseInt(pasajerosInput.value, 10);
       if (!Number.isFinite(allowed)) {
         return;
       }
@@ -446,17 +771,39 @@
       pasajerosCombobox?.updateCount();
     };
 
-    noPasajerosInput.addEventListener("input", enforcePassengerLimit);
+    pasajerosInput.addEventListener("input", enforcePassengerLimit);
     enforcePassengerLimit();
 
-    solicitudForm.addEventListener("submit", (event) => {
-      const pasajerosSelect = document.getElementById("pasajeros_ids");
-      const total = Number.parseInt(noPasajerosInput.value, 10);
+    formEl.addEventListener("submit", (event) => {
+      const pasajerosSelect = document.getElementById(pasajerosSelectId);
+      if (!pasajerosSelect) {
+        return;
+      }
+      const total = Number.parseInt(pasajerosInput.value, 10);
       const seleccionados = pasajerosSelect.selectedOptions.length;
 
       if (!Number.isFinite(total) || total < 0 || total > MAX_PASAJEROS || total !== seleccionados) {
         event.preventDefault();
         alert(`El número de pasajeros debe ser de 0 a ${MAX_PASAJEROS} y coincidir con los nombres seleccionados.\nIndicado: ${total}, Seleccionados: ${seleccionados}`);
+      }
+    });
+  };
+
+  setupPassengerValidation(solicitudForm, noPasajerosInput, "pasajeros_ids", pasajerosCombobox, "pasajeros_container");
+  setupPassengerValidation(
+    prestamoForm,
+    prestamoNoPasajerosInput,
+    "prestamo_pasajeros_ids",
+    prestamoPasajerosCombobox,
+    "prestamo_pasajeros_container",
+  );
+
+  if (prestamoForm && weekList) {
+    prestamoForm.addEventListener("submit", (event) => {
+      const selected = weekList.querySelectorAll("input[type='checkbox']:checked");
+      if (!selected.length) {
+        event.preventDefault();
+        alert("Seleccione al menos un dia habil de la semana actual para el prestamo.");
       }
     });
   }

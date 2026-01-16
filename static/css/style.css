@@ -440,6 +440,82 @@ body {
   font-size: 0.82rem;
 }
 
+.unit-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: #f7f3ee;
+}
+
+.summary-label {
+  font-size: 0.78rem;
+  color: #7a746b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.week-picker {
+  display: grid;
+  gap: 12px;
+}
+
+.week-picker-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.week-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #2f3432;
+}
+
+.week-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.week-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--accent-dark);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.week-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(18, 59, 54, 0.12);
+}
+
+.week-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.week-chip.is-selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
 .multi-count {
   font-weight: 600;
   color: var(--accent-dark);
