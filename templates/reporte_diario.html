@@ -29,23 +29,31 @@
   </div>
 
   {% if movimientos %}
-  <div class="table table-6">
+  <div class="table table-10">
     <div class="table-row header">
-      <span>Folio</span>
-      <span>Ente</span>
-      <span>Unidad</span>
-      <span>Placa</span>
-      <span>Responsable</span>
-      <span>Ruta</span>
+      <span>No.</span>
+      <span>Nombre del resguardante</span>
+      <span>Placa de la unidad</span>
+      <span>Marca</span>
+      <span>Modelo</span>
+      <span>Responsable del vehiculo</span>
+      <span>No. de pasajeros</span>
+      <span>Nombre de los auditores</span>
+      <span>Ruta-destino</span>
+      <span>Motivo de salida</span>
     </div>
     {% for mov in movimientos %}
     <div class="table-row">
-      <span class="mono">{{ mov.folio }}</span>
-      <span>{{ mov.ente_nombre or mov.ente_clave }}</span>
-      <span>[{{ mov.sigla }}] {{ mov.item_nombre }}</span>
+      <span class="mono">{{ loop.index }}</span>
+      <span>{{ mov.resguardante_nombre or "No registrado" }}</span>
       <span>{{ mov.placa_unidad }}</span>
+      <span>{{ mov.marca }}</span>
+      <span>{{ mov.modelo }}</span>
       <span>{{ mov.responsable_vehiculo }}</span>
+      <span>{{ mov.no_pasajeros }}</span>
+      <span>{{ mov.pasajeros_nombres or "No registrados" }}</span>
       <span>{{ mov.ruta_destino }}</span>
+      <span>{{ mov.motivo_salida }}</span>
     </div>
     {% endfor %}
   </div>

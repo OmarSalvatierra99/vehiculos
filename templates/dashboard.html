@@ -74,7 +74,7 @@
               <input type="search" id="pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar pasajeros..." autocomplete="off">
               <div id="pasajeros_dropdown" class="combobox-dropdown" hidden></div>
             </div>
-            <select name="pasajeros_ids" id="pasajeros_ids" data-max="4" multiple hidden required>
+            <select name="pasajeros_ids" id="pasajeros_ids" data-max="4" multiple hidden>
               {% if usuarios %}
                 {% for usuario in usuarios %}
                 <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
@@ -156,12 +156,12 @@
       <fieldset class="form-section">
         <legend>Unidad</legend>
         <label class="full">
-          Vehiculo asignado
+          Vehiculo solicitado
           <select name="prestamo_vehiculo" required>
             {% if vehiculos_prestables %}
               {% for vehiculo in vehiculos_prestables %}
               <option value="{{ vehiculo.id }}:{{ vehiculo.propietario_id }}">
-                [{{ vehiculo.placa }}] {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietario_nombre }}
+                [{{ vehiculo.placa }}] · {{ vehiculo.propietario_nombre }}
               </option>
               {% endfor %}
             {% else %}
@@ -430,6 +430,8 @@
       if (pasajerosContainer) {
         pasajerosContainer.hidden = allowed === 0;
       }
+      pasajerosSelect.required = allowed > 0;
+      pasajerosSelect.disabled = allowed === 0;
       if (allowed === 0) {
         Array.from(pasajerosSelect.selectedOptions).forEach(option => {
           option.selected = false;

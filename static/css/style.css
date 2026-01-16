@@ -630,6 +630,12 @@ textarea {
   box-shadow: 0 12px 26px rgba(18, 59, 54, 0.2);
 }
 
+.btn.danger {
+  border-color: var(--alert);
+  color: var(--alert);
+  background: #fff5f5;
+}
+
 .btn.ghost {
   border-color: var(--line);
   color: var(--accent-dark);
@@ -694,6 +700,10 @@ textarea {
   grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
+.table-10 .table-row {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+}
+
 .table-row.header {
   background: #ede7dc;
   font-weight: 700;
@@ -731,6 +741,11 @@ textarea {
 }
 
 .badge.alert {
+  background: #f6dede;
+  color: var(--alert);
+}
+
+.badge.danger {
   background: #f6dede;
   color: var(--alert);
 }
@@ -977,20 +992,36 @@ textarea {
 }
 
 @media print {
-  body {
-    background: #ffffff;
+  @page {
+    size: letter landscape;
+    margin: 8mm;
   }
 
-  .page,
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .gov-topbar,
+  .gov-header,
+  .footer,
+  .nav-links,
+  .user-area {
+    display: none !important;
+  }
+
   .content,
   .content-inner {
     padding: 0;
+    margin: 0;
   }
 
-  .page > *,
-  .content > *,
   .content-inner > * {
     display: none !important;
+  }
+
+  .content-inner > .report {
+    display: block !important;
   }
 
   .report {
@@ -1001,6 +1032,96 @@ textarea {
 
   .report-actions {
     display: none !important;
+  }
+
+  .report-doc-header {
+    box-shadow: none;
+    border: 1px solid #000000;
+    padding: 8px 10px;
+  }
+
+  .report-doc-logo img {
+    width: 64px;
+    height: 64px;
+  }
+
+  .report-doc-name {
+    font-size: 0.8rem;
+  }
+
+  .report-doc-tag {
+    border-color: #000000;
+    background: #ffffff;
+    font-size: 0.6rem;
+  }
+
+  .report-doc-key {
+    border-color: #000000;
+    font-size: 0.65rem;
+  }
+
+  .report-header h2 {
+    font-size: 0.95rem;
+  }
+
+  .report-subtitle {
+    font-size: 0.7rem;
+  }
+
+  .report-warning {
+    border-color: #000000;
+    background: #ffffff;
+    font-size: 0.65rem;
+    margin-top: 6px;
+  }
+
+  .report-grid {
+    gap: 8px;
+    margin: 12px 0 6px;
+  }
+
+  .report-block {
+    padding: 8px 10px;
+  }
+
+  .report-label {
+    font-size: 0.6rem;
+  }
+
+  .report .table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+
+  .report .table-row {
+    display: table-row;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    page-break-inside: avoid;
+  }
+
+  .report .table-row span {
+    display: table-cell;
+    padding: 6px 8px;
+    border: 1px solid #000000;
+    vertical-align: top;
+  }
+
+  .report .table-row.header span {
+    background: #e6e6e6;
+    font-size: 8pt;
+    letter-spacing: 0.08em;
+  }
+
+  .signature {
+    margin-top: 12px;
+  }
+
+  .signature-line {
+    height: 24px;
   }
 }
 

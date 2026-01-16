@@ -21,11 +21,6 @@
     <small>Placas activas</small>
   </div>
   <div class="stat-card">
-    <span>Inventario total</span>
-    <strong>{{ total_stock }}</strong>
-    <small>Unidades institucionales</small>
-  </div>
-  <div class="stat-card">
     <span>Disponibles hoy</span>
     <strong>{{ total_disponible }}</strong>
     <small>Listas para asignacion</small>
@@ -34,31 +29,6 @@
     <span>Movimientos activos</span>
     <strong>{{ movimientos_en_uso }}</strong>
     <small>{{ movimientos_alerta }} alertas</small>
-  </div>
-</section>
-
-<section class="grid">
-  <div class="card">
-    <h2>Unidades registradas</h2>
-    <p class="subtitle">Relacion oficial de placas activas.</p>
-    {% if vehiculos %}
-    <div class="table table-3">
-      <div class="table-row header">
-        <span>Placa</span>
-        <span>Modelo</span>
-        <span>Marca</span>
-      </div>
-      {% for vehiculo in vehiculos %}
-      <div class="table-row">
-        <span class="mono">{{ vehiculo.placa }}</span>
-        <span>{{ vehiculo.modelo }}</span>
-        <span>{{ vehiculo.marca }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty">No hay placas registradas.</p>
-    {% endif %}
   </div>
 </section>
 
@@ -93,7 +63,9 @@
       <span>{{ mov.data.fecha_solicitud }}</span>
       <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>
       <span>
-        {% if mov.data.devuelto %}
+        {% if mov.data.rechazado %}
+          Rechazado
+        {% elif mov.data.devuelto %}
           Devuelto
         {% elif mov.alerta %}
           Alerta +7 dias
@@ -105,11 +77,16 @@
       </span>
       <span class="actions-inline">
         {% if rol == "monitor" %}
-          {% if mov.data.fecha_entrega %}
+          {% if mov.data.rechazado %}
+            <span class="badge danger">Rechazado</span>
+          {% elif mov.data.fecha_entrega %}
             <span class="badge success">Validado</span>
           {% else %}
             <form method="post" action="{{ url_for('movimientos_entregar', mov_id=mov.data.id) }}">
               <button class="btn ghost btn-small" type="submit">Validar</button>
+            </form>
+            <form method="post" action="{{ url_for('movimientos_rechazar', mov_id=mov.data.id) }}">
+              <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
             </form>
           {% endif %}
         {% else %}
@@ -126,23 +103,26 @@
 
 <section class="grid">
   <div class="card">
-    <h2>Personal responsable</h2>
-    <p class="subtitle">Directorio de responsables de unidades.</p>
-    {% if responsables %}
-    <div class="pill-list">
-      {% for responsable in responsables %}
-      <span class="pill">{{ responsable.nombre }}</span>
+    <h2>Unidades registradas</h2>
+    <p class="subtitle">Relacion oficial de placas activas.</p>
+    {% if vehiculos %}
+    <div class="table table-3">
+      <div class="table-row header">
+        <span>Placa</span>
+        <span>Modelo</span>
+        <span>Marca</span>
+      </div>
+      {% for vehiculo in vehiculos %}
+      <div class="table-row">
+        <span class="mono">{{ vehiculo.placa }}</span>
+        <span>{{ vehiculo.modelo }}</span>
+        <span>{{ vehiculo.marca }}</span>
+      </div>
       {% endfor %}
     </div>
     {% else %}
-    <p class="empty">No hay responsables registrados.</p>
+    <p class="empty">No hay placas registradas.</p>
     {% endif %}
-  </div>
-
-  <div class="card">
-    <h2>Auditores</h2>
-    <p class="subtitle">Captura manual habilitada para solicitudes.</p>
-    <p class="empty">No hay catalogo cargado.</p>
   </div>
 </section>
 {% endblock %}

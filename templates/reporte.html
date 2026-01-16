@@ -82,9 +82,13 @@
   {% if can_print %}
   <div class="actions report-actions">
     <button class="btn primary" type="button" onclick="window.print()">Imprimir reporte</button>
+    <a class="btn ghost" href="{{ url_for('dashboard') }}">Solicitar otro vehiculo</a>
   </div>
   {% else %}
   <div class="alert">Solo el administrador puede imprimir este reporte.</div>
+  <div class="actions report-actions">
+    <a class="btn ghost" href="{{ url_for('dashboard') }}">Solicitar otro vehiculo</a>
+  </div>
   {% endif %}
 </section>
 {% endblock %}

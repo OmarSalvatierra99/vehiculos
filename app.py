@@ -342,12 +342,12 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
         no_pasajeros = int(no_pasajeros_txt)
-        if no_pasajeros <= 0:
+        if no_pasajeros < 0:
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
-                error="El numero de pasajeros debe ser mayor a cero.",
+                error="El numero de pasajeros no puede ser menor a cero.",
                 **context,
             )
         if no_pasajeros > 4:
@@ -559,6 +559,13 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
         db_manager.marcar_entregado(mov_id, session.get("usuario_id"))
+        return redirect(url_for("admin"))
+
+    @app.route("/movimientos/<int:mov_id>/rechazar", methods=["POST"])
+    def movimientos_rechazar(mov_id: int):
+        if session.get("rol") not in {"admin", "monitor"}:
+            return redirect(url_for("dashboard"))
+        db_manager.marcar_rechazado(mov_id, session.get("usuario_id"))
         return redirect(url_for("admin"))
 
     @app.route("/movimientos/<int:mov_id>/devolver", methods=["POST"])

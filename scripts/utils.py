@@ -1066,11 +1066,12 @@ class DatabaseManager:
             ("vehiculo", vehiculo_id),
             ("responsable", responsable_usuario_id),
             ("pasajeros", no_pasajeros),
-            ("nombres_pasajeros", pasajeros_ids),
             ("ruta", ruta_destinos),
             ("notificacion", tipo_notificacion_id),
             ("motivo", motivo_salida),
         ]
+        if int(no_pasajeros) > 0:
+            requeridos.append(("nombres_pasajeros", pasajeros_ids))
         for clave, valor in requeridos:
             if valor is None or (isinstance(valor, str) and not valor.strip()):
                 return False, {"mensaje": f"Falta el dato de {clave}."}
@@ -1129,20 +1130,23 @@ class DatabaseManager:
             return False, {"mensaje": "Tipo de notificacion no encontrado."}
 
         pasajeros_ids = [int(pid) for pid in pasajeros_ids if pid]
-        if len(pasajeros_ids) != len(set(pasajeros_ids)):
-            conn.close()
-            return False, {"mensaje": "Pasajeros duplicados en la seleccion."}
-        placeholders = ",".join(["?"] * len(pasajeros_ids))
-        cur.execute(f"""
-            SELECT id, nombre
-            FROM usuarios
-            WHERE id IN ({placeholders}) AND activo=1
-            ORDER BY nombre
-        """, pasajeros_ids)
-        pasajeros = cur.fetchall()
-        if len(pasajeros) != len(set(pasajeros_ids)):
-            conn.close()
-            return False, {"mensaje": "Pasajeros no encontrados."}
+        if int(no_pasajeros) == 0:
+            pasajeros_ids = []
+        if pasajeros_ids:
+            if len(pasajeros_ids) != len(set(pasajeros_ids)):
+                conn.close()
+                return False, {"mensaje": "Pasajeros duplicados en la seleccion."}
+            placeholders = ",".join(["?"] * len(pasajeros_ids))
+            cur.execute(f"""
+                SELECT id, nombre
+                FROM usuarios
+                WHERE id IN ({placeholders}) AND activo=1
+                ORDER BY nombre
+            """, pasajeros_ids)
+            pasajeros = cur.fetchall()
+            if len(pasajeros) != len(set(pasajeros_ids)):
+                conn.close()
+                return False, {"mensaje": "Pasajeros no encontrados."}
         if int(no_pasajeros) != len(pasajeros_ids):
             conn.close()
             return False, {"mensaje": "El numero de pasajeros no coincide."}
@@ -1255,7 +1259,10 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(destino, ' -> ')
                        FROM (
-                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
+                           SELECT CASE
+                               WHEN e2.clave = 'CCLET' THEN e2.clave
+                               ELSE COALESCE(e2.nombre, md.ente_clave)
+                           END AS destino
                            FROM movimientos_destinos md
                            LEFT JOIN entes e2 ON e2.clave = md.ente_clave
                            WHERE md.movimiento_id = m.id
@@ -1263,6 +1270,12 @@ class DatabaseManager:
                        )
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
+                   EXISTS(
+                       SELECT 1
+                       FROM movimientos_eventos me
+                       WHERE me.movimiento_id = m.id
+                         AND me.evento = 'RECHAZADO'
+                   ) AS rechazado,
                    e.nombre AS ente_nombre,
                    i.sigla, i.nombre AS item_nombre, i.categoria,
                    n.nombre AS tipo_notificacion,
@@ -1312,7 +1325,10 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(destino, ' -> ')
                        FROM (
-                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
+                           SELECT CASE
+                               WHEN e2.clave = 'CCLET' THEN e2.clave
+                               ELSE COALESCE(e2.nombre, md.ente_clave)
+                           END AS destino
                            FROM movimientos_destinos md
                            LEFT JOIN entes e2 ON e2.clave = md.ente_clave
                            WHERE md.movimiento_id = m.id
@@ -1368,7 +1384,10 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(destino, ' -> ')
                        FROM (
-                           SELECT COALESCE(e2.nombre, md.ente_clave) AS destino
+                           SELECT CASE
+                               WHEN e2.clave = 'CCLET' THEN e2.clave
+                               ELSE COALESCE(e2.nombre, md.ente_clave)
+                           END AS destino
                            FROM movimientos_destinos md
                            LEFT JOIN entes e2 ON e2.clave = md.ente_clave
                            WHERE md.movimiento_id = m.id
@@ -1408,6 +1427,16 @@ class DatabaseManager:
         if not row:
             conn.close()
             return False, "Movimiento no encontrado."
+        cur.execute("""
+            SELECT 1
+            FROM movimientos_eventos
+            WHERE movimiento_id=?
+              AND evento='RECHAZADO'
+            LIMIT 1
+        """, (movimiento_id,))
+        if cur.fetchone():
+            conn.close()
+            return False, "El movimiento fue rechazado."
         if row["fecha_entrega"]:
             conn.close()
             return False, "El movimiento ya fue entregado."
@@ -1429,6 +1458,36 @@ class DatabaseManager:
         conn.commit()
         conn.close()
         return True, "Entrega registrada."
+
+    def marcar_rechazado(self, movimiento_id: int, usuario_id: int) -> Tuple[bool, str]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, fecha_entrega, devuelto
+            FROM movimientos
+            WHERE id=?
+        """, (movimiento_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False, "Movimiento no encontrado."
+        if row["fecha_entrega"] or row["devuelto"]:
+            conn.close()
+            return False, "No se puede rechazar un movimiento entregado."
+        cur.execute("""
+            SELECT 1
+            FROM movimientos_eventos
+            WHERE movimiento_id=?
+              AND evento='RECHAZADO'
+            LIMIT 1
+        """, (movimiento_id,))
+        if cur.fetchone():
+            conn.close()
+            return False, "El movimiento ya fue rechazado."
+        self._registrar_evento(cur, movimiento_id, usuario_id, "RECHAZADO", "")
+        conn.commit()
+        conn.close()
+        return True, "Movimiento rechazado."
 
     def marcar_devuelto(self, movimiento_id: int, usuario_id: int) -> Tuple[bool, str]:
         conn = self._connect()
