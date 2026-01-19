@@ -53,14 +53,16 @@
         <span>[{{ mov.data.sigla }}] {{ mov.data.item_nombre }}</span>
         <span>{{ mov.data.ente_nombre or mov.data.ente_clave }}</span>
         <span>{{ mov.data.fecha_solicitud }}</span>
-        <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>
-        <span>
-          {% if mov.data.devuelto %}
-            Devuelto
-          {% elif mov.alerta %}
-            Alerta +7 dias
-          {% elif mov.data.fecha_entrega %}
-            En uso
+      <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>
+      <span>
+        {% if mov.data.devuelto %}
+          Devuelto
+        {% elif mov.data.conflicto and not mov.data.fecha_entrega %}
+          Conflicto
+        {% elif mov.alerta %}
+          Alerta +7 dias
+        {% elif mov.data.fecha_entrega %}
+          En uso
           {% else %}
             Pendiente
           {% endif %}

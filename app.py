@@ -158,12 +158,17 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
     item_siglas = {(item.get("sigla") or "").upper() for item in items}
     vehiculos = db_manager.listar_vehiculos(usuario_id=usuario_id)
     if item_siglas:
-        vehiculos = [
+        filtrados = [
             vehiculo
             for vehiculo in vehiculos
             if (vehiculo.get("placa") or "").upper() in item_siglas
         ]
-    usuarios = db_manager.listar_usuarios(resguardante_id=usuario_id)
+        if filtrados:
+            vehiculos = filtrados
+    usuarios = db_manager.listar_usuarios()
+    auditores = db_manager.listar_auditores_por_usuario(usuario_id)
+    if not auditores:
+        auditores = db_manager.listar_auditores()
     entes = db_manager.listar_entes()
     vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id)
     movimientos = db_manager.listar_movimientos(usuario_id=usuario_id)
@@ -175,9 +180,11 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
         "movimientos": alertas,
         "vehiculos": vehiculos,
         "usuarios": usuarios,
+        "auditores": auditores,
         "entes": entes,
         "vehiculos_prestables": vehiculos_prestables,
         "items": items,
+        "usuario_id": usuario_id,
         "today": date.today().isoformat(),
     }
 
@@ -191,8 +198,7 @@ def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
     )
     vehiculos = db_manager.listar_vehiculos()
     responsables = db_manager.listar_responsables()
-    total_stock = sum(int(item.get("stock_total") or 0) for item in items)
-    total_disponible = sum(int(item.get("stock_disponible") or 0) for item in items)
+    total_stock, total_disponible = db_manager.contar_vehiculos_disponibles()
     en_uso = sum(
         1
         for mov in alertas
@@ -278,7 +284,12 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return redirect(url_for("admin"))
 
         context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-        return render_template("dashboard.html", usuario=session.get("nombre"), **context)
+        return render_template(
+            "dashboard.html",
+            usuario=session.get("nombre"),
+            tipo_solicitud="normal",
+            **context,
+        )
 
     @app.route("/admin")
     def admin():
@@ -303,24 +314,59 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         if session.get("rol") != "user":
             return redirect(url_for("dashboard"))
 
+        tipo_solicitud = request.form.get("tipo_solicitud", "").strip().lower()
+        if not tipo_solicitud:
+            tipo_solicitud = "prestamo" if request.form.get("prestamo_vehiculo") else "normal"
+        es_prestamo = tipo_solicitud == "prestamo"
+
         item_id = request.form.get("item_id")
         cantidad = request.form.get("cantidad") or "1"
-        vehiculo_id = request.form.get("vehiculo_id")
+        vehiculo_raw = request.form.get("vehiculo_id", "")
         responsable_usuario_id = request.form.get("responsable_usuario_id")
         no_pasajeros_txt = request.form.get("no_pasajeros", "").strip()
         pasajeros_ids = [pid for pid in request.form.getlist("pasajeros_ids") if pid]
         ruta_destinos = [clave for clave in request.form.getlist("ruta_destinos") if clave]
         motivo = request.form.get("motivo_salida", "").strip()
         tipo_notificacion_id = request.form.get("tipo_notificacion_id")
-        observaciones = request.form.get("observaciones")
+        notas = request.form.get("notas")
         fecha = request.form.get("fecha_solicitud")
 
-        if not vehiculo_id or not vehiculo_id.isdigit():
+        if es_prestamo and not vehiculo_raw:
+            vehiculo_raw = request.form.get("prestamo_vehiculo", "")
+            responsable_usuario_id = request.form.get("prestamo_responsable_usuario_id") or responsable_usuario_id
+            no_pasajeros_txt = request.form.get("prestamo_no_pasajeros", "").strip() or no_pasajeros_txt
+            pasajeros_ids = [pid for pid in request.form.getlist("prestamo_pasajeros_ids") if pid] or pasajeros_ids
+            ruta_destinos = [clave for clave in request.form.getlist("prestamo_ruta_destinos") if clave] or ruta_destinos
+            motivo = request.form.get("prestamo_motivo_salida", "").strip() or motivo
+            notas = request.form.get("prestamo_notas") or notas
+
+        vehiculo_id = None
+        propietario_id = None
+        if ":" in vehiculo_raw:
+            vehiculo_txt, propietario_txt = vehiculo_raw.split(":", 1)
+        else:
+            vehiculo_txt, propietario_txt = vehiculo_raw, ""
+        if vehiculo_txt and vehiculo_txt.isdigit():
+            vehiculo_id = int(vehiculo_txt)
+        if propietario_txt and propietario_txt.isdigit():
+            propietario_id = int(propietario_txt)
+
+        if not vehiculo_id:
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="Falta seleccionar la unidad.",
+                tipo_solicitud=tipo_solicitud,
+                **context,
+            )
+        if es_prestamo and (not propietario_id or propietario_id == session.get("usuario_id")):
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="Seleccione una unidad asignada a otro usuario para el prestamo.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -330,6 +376,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="Falta seleccionar al responsable del vehiculo.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -339,6 +386,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="El numero de pasajeros debe ser numerico.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
         no_pasajeros = int(no_pasajeros_txt)
@@ -348,6 +396,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="El numero de pasajeros no puede ser menor a cero.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
         if no_pasajeros > 4:
@@ -356,6 +405,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="El numero de pasajeros no puede exceder 4 (maximo 5 ocupantes incluyendo al conductor).",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -365,6 +415,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="El numero de pasajeros debe coincidir con los nombres seleccionados.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
         if any(not pid.isdigit() for pid in pasajeros_ids):
@@ -373,6 +424,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="La lista de pasajeros no es valida.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -382,6 +434,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="Falta seleccionar la ruta destino.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -398,6 +451,34 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="El motivo de salida no es valido.",
+                tipo_solicitud=tipo_solicitud,
+                **context,
+            )
+
+        if es_prestamo:
+            fecha_prestamo = request.form.get("fecha_prestamo", "").strip()
+            fechas_prestamo = [fecha_prestamo] if fecha_prestamo else []
+            if not fechas_prestamo:
+                fechas_prestamo = [fecha for fecha in request.form.getlist("fechas_prestamo") if fecha]
+            ok, mensaje = db_manager.solicitar_prestamo(
+                session.get("usuario_id"),
+                int(propietario_id),
+                int(vehiculo_id),
+                int(responsable_usuario_id),
+                int(no_pasajeros),
+                [int(pid) for pid in pasajeros_ids],
+                fechas_prestamo,
+                ruta_destinos,
+                motivo,
+                notas,
+            )
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                ok=mensaje if ok else None,
+                error=None if ok else mensaje,
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -417,6 +498,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="La unidad seleccionada no es valida.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -437,6 +519,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error="Faltan datos requeridos para completar la solicitud.",
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -447,7 +530,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             int(cantidad),
             "",
             None,
-            observaciones,
+            notas,
             None,
             int(vehiculo_id),
             int(responsable_usuario_id),
@@ -465,6 +548,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 "dashboard.html",
                 usuario=session.get("nombre"),
                 error=data.get("mensaje") if isinstance(data, dict) else data,
+                tipo_solicitud=tipo_solicitud,
                 **context,
             )
 
@@ -472,168 +556,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/prestamos/solicitar", methods=["POST"])
     def solicitar_prestamo():
-        if not session.get("autenticado"):
-            return redirect(url_for("login"))
-        if session.get("rol") != "user":
-            return redirect(url_for("dashboard"))
-
-        raw_val = request.form.get("prestamo_vehiculo", "")
-        responsable_usuario_id = request.form.get("prestamo_responsable_usuario_id")
-        no_pasajeros_txt = request.form.get("prestamo_no_pasajeros", "").strip()
-        pasajeros_ids = [pid for pid in request.form.getlist("prestamo_pasajeros_ids") if pid]
-        fechas_prestamo = [fecha for fecha in request.form.getlist("prestamo_fechas") if fecha]
-        ruta_destinos = [clave for clave in request.form.getlist("prestamo_ruta_destinos") if clave]
-        motivo = request.form.get("prestamo_motivo_salida", "").strip()
-        notas = request.form.get("prestamo_notas")
-        if ":" not in raw_val:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="Seleccione el vehiculo y propietario para el prestamo.",
-                **context,
-            )
-
-        vehiculo_txt, propietario_txt = raw_val.split(":", 1)
-        if not vehiculo_txt.isdigit() or not propietario_txt.isdigit():
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="Seleccion no valida para el prestamo.",
-                **context,
-            )
-
-        if not responsable_usuario_id or not responsable_usuario_id.isdigit():
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="Falta seleccionar al responsable del vehiculo.",
-                **context,
-            )
-
-        if not no_pasajeros_txt.isdigit():
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="El numero de pasajeros debe ser numerico.",
-                **context,
-            )
-        no_pasajeros = int(no_pasajeros_txt)
-        if no_pasajeros < 0:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="El numero de pasajeros no puede ser menor a cero.",
-                **context,
-            )
-        if no_pasajeros > 4:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="El numero de pasajeros no puede exceder 4 (maximo 5 ocupantes incluyendo al conductor).",
-                **context,
-            )
-
-        if len(pasajeros_ids) != no_pasajeros:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="El numero de pasajeros debe coincidir con los nombres seleccionados.",
-                **context,
-            )
-        if any(not pid.isdigit() for pid in pasajeros_ids):
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="La lista de pasajeros no es valida.",
-                **context,
-            )
-
-        if not fechas_prestamo:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="Falta seleccionar al menos un dia para el prestamo.",
-                **context,
-            )
-        fechas_parsed = []
-        for fecha in fechas_prestamo:
-            try:
-                fechas_parsed.append(datetime.strptime(fecha, "%Y-%m-%d").date())
-            except ValueError:
-                context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-                return render_template(
-                    "dashboard.html",
-                    usuario=session.get("nombre"),
-                    prestamo_error="Formato de fecha no valido para el prestamo.",
-                    **context,
-                )
-        hoy = date.today()
-        lunes = hoy - timedelta(days=hoy.weekday())
-        viernes = lunes + timedelta(days=4)
-        for fecha in fechas_parsed:
-            if fecha < hoy or fecha < lunes or fecha > viernes or fecha.weekday() > 4:
-                context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-                return render_template(
-                    "dashboard.html",
-                    usuario=session.get("nombre"),
-                    prestamo_error="Las fechas deben estar dentro de la semana actual (lunes a viernes).",
-                    **context,
-                )
-
-        if not ruta_destinos:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="Falta seleccionar la ruta destino.",
-                **context,
-            )
-
-        motivos_validos = {
-            "Notificación de Oficio",
-            "Revisión de Auditoría",
-            "Entrega de Recepción",
-            "Compulsas",
-            "Inspección Física",
-        }
-        if motivo not in motivos_validos:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                prestamo_error="El motivo de salida no es valido.",
-                **context,
-            )
-
-        ok, mensaje = db_manager.solicitar_prestamo(
-            session.get("usuario_id"),
-            int(propietario_txt),
-            int(vehiculo_txt),
-            int(responsable_usuario_id),
-            int(no_pasajeros),
-            [int(pid) for pid in pasajeros_ids],
-            [fecha.isoformat() for fecha in sorted(set(fechas_parsed))],
-            ruta_destinos,
-            motivo,
-            notas,
-        )
-        context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-        return render_template(
-            "dashboard.html",
-            usuario=session.get("nombre"),
-            prestamo_ok=mensaje if ok else None,
-            prestamo_error=None if ok else mensaje,
-            **context,
-        )
+        return solicitar()
 
     @app.route("/gestor")
     def gestor():
@@ -680,21 +603,45 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     def movimientos_entregar(mov_id: int):
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
-        db_manager.marcar_entregado(mov_id, session.get("usuario_id"))
+        ok, mensaje = db_manager.marcar_entregado(mov_id, session.get("usuario_id"))
+        if not ok:
+            return render_template(
+                "admin.html",
+                usuario=session.get("nombre"),
+                rol=session.get("rol"),
+                error=mensaje,
+                **_build_admin_context(app, db_manager),
+            )
         return redirect(url_for("admin"))
 
     @app.route("/movimientos/<int:mov_id>/rechazar", methods=["POST"])
     def movimientos_rechazar(mov_id: int):
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
-        db_manager.marcar_rechazado(mov_id, session.get("usuario_id"))
+        ok, mensaje = db_manager.marcar_rechazado(mov_id, session.get("usuario_id"))
+        if not ok:
+            return render_template(
+                "admin.html",
+                usuario=session.get("nombre"),
+                rol=session.get("rol"),
+                error=mensaje,
+                **_build_admin_context(app, db_manager),
+            )
         return redirect(url_for("admin"))
 
     @app.route("/movimientos/<int:mov_id>/devolver", methods=["POST"])
     def movimientos_devolver(mov_id: int):
         if session.get("rol") != "admin":
             return redirect(url_for("dashboard"))
-        db_manager.marcar_devuelto(mov_id, session.get("usuario_id"))
+        ok, mensaje = db_manager.marcar_devuelto(mov_id, session.get("usuario_id"))
+        if not ok:
+            return render_template(
+                "admin.html",
+                usuario=session.get("nombre"),
+                rol=session.get("rol"),
+                error=mensaje,
+                **_build_admin_context(app, db_manager),
+            )
         return redirect(url_for("admin"))
 
     @app.route("/health")
@@ -773,10 +720,8 @@ def _fecha_larga_es(fecha_iso: str) -> str:
     return f"{dias[fecha.weekday()]} {fecha.day:02d} de {meses[fecha.month - 1]} del {fecha.year}"
 
 
-app = create_app()
-
-
 if __name__ == "__main__":
+    app = create_app()
     host = app.config.get("HOST", "0.0.0.0")
     port = app.config.get("PORT", 5010)
     debug = app.config.get("DEBUG", False)

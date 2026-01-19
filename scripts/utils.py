@@ -218,8 +218,11 @@ class DatabaseManager:
         self._seed_usuarios()
         self._seed_inventario()
         self._seed_vehiculos()
+        self._sync_inventario_vehiculos()
         self._seed_usuarios_vehiculos()
         self._seed_responsables()
+        self._seed_auditores()
+        self._seed_responsables_auditores()
         self._seed_resguardantes()
         self._seed_notificaciones()
 
@@ -329,6 +332,15 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT UNIQUE NOT NULL,
                 activo INTEGER DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS responsables_auditores (
+                responsable_id INTEGER NOT NULL,
+                auditor_id INTEGER NOT NULL,
+                orden INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (responsable_id, auditor_id),
+                FOREIGN KEY(responsable_id) REFERENCES responsables(id),
+                FOREIGN KEY(auditor_id) REFERENCES auditores(id)
             );
 
             CREATE TABLE IF NOT EXISTS notificaciones (
@@ -515,8 +527,11 @@ class DatabaseManager:
 
         if total == 0 and not usuarios:
             usuarios = [
-                ("Administrador Inventario", "admin", _hash_password("admin5010"), "admin", "Administrador", "TODOS"),
-                ("Usuario Auditor", "usuario", _hash_password("usuario5010"), "user", "Auditor", "TODOS"),
+                ("C.P. Miguel Ángel Roldán Peña", "miguel", _hash_password("miguel2025"), "user", "", "TODOS"),
+                ("C.P. Cristina Rosas de la Cruz", "cristina", _hash_password("cristina2025"), "user", "", "TODOS"),
+                ("C.P. Ángel Flores Licona", "angel", _hash_password("angel2025"), "user", "", "TODOS"),
+                ("C.P. Juan José Blanco Sánchez", "juan", _hash_password("juan2025"), "user", "", "TODOS"),
+                ("Ing. Omar Alfredo Castro Orozco", "omar", _hash_password("omar2025"), "user", "", "TODOS"),
             ]
             logger.warning("Usuarios base creados; cambie las claves por seguridad.")
 
@@ -527,13 +542,11 @@ class DatabaseManager:
             )
 
         usuarios_requeridos = [
-            ("Monitor Vehicular", "monitor", "monitor2025", "monitor", "Responsable de los vehículos"),
-            ("C.P. Cristina Rosas de la Cruz", "cristina", "cristina2025", "user", "Coordinador"),
-            ("C.P. Luis Felipe Camilo Fuentes", "luis", "luis2025", "user", "Subdirector"),
-            ("C.P. Miguel Ángel Roldán Peña", "miguel", "miguel2025", "user", "Coordinador"),
-            ("C.P. Odilia Cuamatzi Bautista", "odilia", "odilia2025", "user", "Directora"),
-            ("C.P.C. Juan José Blanco Sánchez", "juan", "juan2025", "user", "Coordinador"),
-            ("Téc. Ángel Flores Licona", "angel", "angel2025", "user", "Coordinador"),
+            ("C.P. Miguel Ángel Roldán Peña", "miguel", "miguel2025", "user", ""),
+            ("C.P. Cristina Rosas de la Cruz", "cristina", "cristina2025", "user", ""),
+            ("C.P. Ángel Flores Licona", "angel", "angel2025", "user", ""),
+            ("C.P. Juan José Blanco Sánchez", "juan", "juan2025", "user", ""),
+            ("Ing. Omar Alfredo Castro Orozco", "omar", "omar2025", "user", ""),
         ]
 
         for nombre, usuario, clave_txt, rol_txt, puesto in usuarios_requeridos:
@@ -632,6 +645,32 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def listar_auditores_por_usuario(self, usuario_id: int) -> List[Dict]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT nombre
+            FROM usuarios
+            WHERE id=? AND activo=1
+        """, (usuario_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return []
+
+        responsable_nombre = row["nombre"]
+        cur.execute("""
+            SELECT a.id, a.nombre
+            FROM responsables r
+            JOIN responsables_auditores ra ON ra.responsable_id = r.id
+            JOIN auditores a ON a.id = ra.auditor_id
+            WHERE r.nombre=? AND a.activo=1
+            ORDER BY ra.orden, a.nombre
+        """, (responsable_nombre,))
+        data = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return data
+
     def listar_resguardantes(self) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
@@ -717,16 +756,64 @@ class DatabaseManager:
             return
 
         vehiculos = [
-            ("XVZ-357-C", "VERSA SENSE", "NISSAN"),
-            ("XVZ-385-C", "VERSA SENSE", "VOLKSWAGEN"),
-            ("XBL-902-B", "JETTA", "VOLKSWAGEN"),
-            ("XDF-551-C", "SENTRA", "NISSAN"),
-            ("XHY-112-A", "AVEO", "CHEVROLET"),
+            ("XVZ-360-C", "Versa Sense", "NISSAN"),
+            ("XVZ-373-C", "Versa Sense", "NISSAN"),
+            ("XVZ-351-C", "Versa", "NISSAN"),
+            ("XVZ-357-C", "Versa Sense", "NISSAN"),
+            ("XVZ-358-C", "Versa Sense", "NISSAN"),
+            ("XVZ-346-C", "Versa", "NISSAN"),
+            ("XVZ-370-C", "Versa Sense", "NISSAN"),
+            ("XVZ-356-C", "Versa Sense", "NISSAN"),
+            ("XTR-479-E", "Aveo", "CHEVROLET"),
+            ("XVZ-359-C", "Versa Sense", "NISSAN"),
+            ("XVZ-371-C", "Versa Sense", "NISSAN"),
+            ("XVZ-349-C", "Versa", "NISSAN"),
+            ("XVZ-353-C", "Versa", "NISSAN"),
+            ("XXK-741-D", "Gol Sedán", "VOLKSWAGEN"),
+            ("XC-8407-C", "NP 300", "NISSAN"),
+            ("XVZ-335-C", "Aveo", "CHEVROLET"),
         ]
         cur.executemany("""
             INSERT INTO vehiculos (placa, modelo, marca, activo)
             VALUES (?, ?, ?, 1)
         """, vehiculos)
+        conn.commit()
+        conn.close()
+
+    def _sync_inventario_vehiculos(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT placa, modelo, marca
+            FROM vehiculos
+            WHERE activo=1
+        """)
+        vehiculos = cur.fetchall()
+        if not vehiculos:
+            conn.close()
+            return
+
+        registros = []
+        for row in vehiculos:
+            placa = row["placa"]
+            modelo = row["modelo"]
+            marca = row["marca"]
+            nombre = f"{marca} {modelo}".strip()
+            descripcion = f"Marca: {marca} · Modelo: {modelo}".strip()
+            registros.append((placa, nombre, "VEHICULO", None, descripcion, 1, 1))
+
+        cur.executemany("""
+            INSERT INTO inventario_items (
+                sigla, nombre, categoria, no_inventario, descripcion,
+                stock_total, stock_disponible
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(sigla) DO UPDATE SET
+                nombre=excluded.nombre,
+                categoria=excluded.categoria,
+                descripcion=excluded.descripcion,
+                stock_total=excluded.stock_total,
+                stock_disponible=excluded.stock_disponible
+        """, registros)
         conn.commit()
         conn.close()
 
@@ -753,13 +840,11 @@ class DatabaseManager:
         vehiculos = {row["placa"].upper(): row["id"] for row in cur.fetchall()}
 
         asignaciones = [
-            ("monitor", ["XVZ-357-C", "XVZ-385-C", "XBL-902-B", "XDF-551-C", "XHY-112-A"]),
-            ("cristina", ["XVZ-357-C"]),
-            ("luis", ["XVZ-385-C"]),
-            ("miguel", ["XBL-902-B"]),
-            ("odilia", ["XDF-551-C"]),
-            ("juan", ["XHY-112-A"]),
-            ("angel", ["XVZ-357-C", "XDF-551-C"]),
+            ("cristina", ["XVZ-357-C", "XVZ-358-C", "XVZ-346-C"]),
+            ("miguel", ["XVZ-360-C", "XVZ-373-C", "XVZ-351-C"]),
+            ("omar", ["XVZ-353-C", "XXK-741-D", "XC-8407-C", "XVZ-335-C"]),
+            ("angel", ["XVZ-370-C", "XVZ-356-C", "XTR-479-E"]),
+            ("juan", ["XVZ-359-C", "XVZ-371-C", "XVZ-349-C"]),
         ]
 
         registros = []
@@ -790,11 +875,11 @@ class DatabaseManager:
             return
 
         responsables = [
-            ("Usuario Auditor",),
-            ("Maria Rodriguez",),
-            ("Jose Hernandez",),
-            ("Carmen Vazquez",),
-            ("Rafael Torres",),
+            ("C.P. Miguel Ángel Roldán Peña",),
+            ("C.P. Cristina Rosas de la Cruz",),
+            ("C.P. Ángel Flores Licona",),
+            ("C.P. Juan José Blanco Sánchez",),
+            ("Ing. Omar Alfredo Castro Orozco",),
         ]
         cur.executemany("""
             INSERT INTO responsables (nombre, activo)
@@ -832,16 +917,140 @@ class DatabaseManager:
             return
 
         auditores = [
-            ("Diana Morales",),
-            ("Hector Jimenez",),
-            ("Laura Flores",),
-            ("Ernesto Medina",),
-            ("Ana Castillo",),
+            ("C.P. Yaneth Cruz George",),
+            ("C.P. Julissa Karen Flores Pérez",),
+            ("C.P. Margaret Michelle Pluma Meléndez",),
+            ("C.P. Vanesa Angulo Ramírez",),
+            ("C.P. Antonio Mastranzo Sánchez",),
+            ("C.P. Gonzalo Flores Pérez",),
+            ("Lic. Liliana Bonilla Montiel",),
+            ("C.P. Paola Rodríguez Sánchez",),
+            ("C.P. David Yair Juárez Zainos",),
+            ("C.P. Mayra Ortega Campech",),
+            ("C.P. Omar Romero Flores",),
+            ("Lic. Iván Xahuentitla Domínguez",),
+            ("C.P. María Fernanda Vázquez Ramírez",),
+            ("C.P. Luis Enrique Velázquez López",),
+            ("C.P. Beatriz Netzahualcóyotl Nava",),
+            ("C.P. Patricia Romano López",),
+            ("C.P. Diana Angélica Mendoza Cortés",),
+            ("C.P. Gloria Arévalo Gutiérrez",),
+            ("C.P. Eliazar Nava Nava",),
+            ("C.P. Edgar Daniel Ordoñez Salinas",),
+            ("C.P. Melina Flores Peña",),
+            ("C.P. Roberto Sánchez Espinoza",),
+            ("C.P. Jonathan Islas Sosa",),
+            ("C.P. Isael López Cervantes",),
+            ("C.P. Aranza Sánchez Trejo",),
+            ("Arq. Ramos Martín Quiebras Techalotzi",),
+            ("Arq. Jesús Coca López",),
+            ("Arq. Juan Eduardo López García",),
+            ("Arq. José Miguel Ángel Morales Vásquez",),
+            ("Arq. Guadalupe Carrillo Raya",),
+            ("Ing. Sergio Grajeda Avendaño",),
+            ("Ing. Ubaldo Cuapio Cuapio",),
+            ("Arq. Sergio David Jiménez Cuahutepitzi",),
+            ("Ing. Alfonso Luis Vázquez Barrera",),
+            ("Arq. Arely López Breton",),
+            ("Ing. Yessica Flores Flores",),
+            ("Arq. Damaris Pérez Cárcamo",),
+            ("Arq. Jesús Alberto Islas López",),
+            ("Arq. José Luis Ramírez Hernández",),
+            ("Arq. Monserrat Moncayo Gómez",),
+            ("Ing. Omar Alejandro Limón",),
+            ("Arq. Yazmín Zárate Pérez",),
         ]
         cur.executemany("""
             INSERT INTO auditores (nombre, activo)
             VALUES (?, 1)
         """, auditores)
+        conn.commit()
+        conn.close()
+
+    def _seed_responsables_auditores(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM responsables_auditores")
+        if cur.fetchone()[0] > 0:
+            conn.close()
+            return
+
+        cur.execute("SELECT id, nombre FROM responsables WHERE activo=1")
+        responsables = {row["nombre"]: row["id"] for row in cur.fetchall()}
+        cur.execute("SELECT id, nombre FROM auditores WHERE activo=1")
+        auditores = {row["nombre"]: row["id"] for row in cur.fetchall()}
+
+        grupos = [
+            ("C.P. Miguel Ángel Roldán Peña", [
+                "C.P. Yaneth Cruz George",
+                "C.P. Julissa Karen Flores Pérez",
+                "C.P. Margaret Michelle Pluma Meléndez",
+                "C.P. Vanesa Angulo Ramírez",
+                "C.P. Antonio Mastranzo Sánchez",
+                "C.P. Gonzalo Flores Pérez",
+            ]),
+            ("C.P. Cristina Rosas de la Cruz", [
+                "Lic. Liliana Bonilla Montiel",
+                "C.P. Paola Rodríguez Sánchez",
+                "C.P. David Yair Juárez Zainos",
+                "C.P. Mayra Ortega Campech",
+                "C.P. Omar Romero Flores",
+                "Lic. Iván Xahuentitla Domínguez",
+                "C.P. María Fernanda Vázquez Ramírez",
+            ]),
+            ("C.P. Ángel Flores Licona", [
+                "C.P. Luis Enrique Velázquez López",
+                "C.P. Beatriz Netzahualcóyotl Nava",
+                "C.P. Patricia Romano López",
+                "C.P. Diana Angélica Mendoza Cortés",
+                "C.P. Gloria Arévalo Gutiérrez",
+                "C.P. Eliazar Nava Nava",
+            ]),
+            ("C.P. Juan José Blanco Sánchez", [
+                "C.P. Edgar Daniel Ordoñez Salinas",
+                "C.P. Melina Flores Peña",
+                "C.P. Roberto Sánchez Espinoza",
+                "C.P. Jonathan Islas Sosa",
+                "C.P. Isael López Cervantes",
+                "C.P. Aranza Sánchez Trejo",
+            ]),
+            ("Ing. Omar Alfredo Castro Orozco", [
+                "Arq. Ramos Martín Quiebras Techalotzi",
+                "Arq. Jesús Coca López",
+                "Arq. Juan Eduardo López García",
+                "Arq. José Miguel Ángel Morales Vásquez",
+                "Arq. Guadalupe Carrillo Raya",
+                "Ing. Sergio Grajeda Avendaño",
+                "Ing. Ubaldo Cuapio Cuapio",
+                "Arq. Sergio David Jiménez Cuahutepitzi",
+                "Ing. Alfonso Luis Vázquez Barrera",
+                "Arq. Arely López Breton",
+                "Ing. Yessica Flores Flores",
+                "Arq. Damaris Pérez Cárcamo",
+                "Arq. Jesús Alberto Islas López",
+                "Arq. José Luis Ramírez Hernández",
+                "Arq. Monserrat Moncayo Gómez",
+                "Ing. Omar Alejandro Limón",
+                "Arq. Yazmín Zárate Pérez",
+            ]),
+        ]
+
+        registros = []
+        for responsable_nombre, lista_auditores in grupos:
+            responsable_id = responsables.get(responsable_nombre)
+            if not responsable_id:
+                continue
+            for orden, auditor_nombre in enumerate(lista_auditores, start=1):
+                auditor_id = auditores.get(auditor_nombre)
+                if auditor_id:
+                    registros.append((responsable_id, auditor_id, orden))
+
+        if registros:
+            cur.executemany("""
+                INSERT OR IGNORE INTO responsables_auditores (responsable_id, auditor_id, orden)
+                VALUES (?, ?, ?)
+            """, registros)
+
         conn.commit()
         conn.close()
 
@@ -934,26 +1143,39 @@ class DatabaseManager:
             WHERE v.activo=1
               AND u.activo=1
               AND uv.usuario_id != ?
+              AND mu.fecha_entrega IS NULL
             ORDER BY u.nombre, v.placa
         """, (solicitante_id,))
-        data = []
-        for row in cur.fetchall():
-            item = dict(row)
-            en_uso = False
-            dias_en_uso = None
-            fecha_en_uso = item.get("fecha_en_uso")
-            if fecha_en_uso:
-                try:
-                    fecha_dt = datetime.strptime(fecha_en_uso, "%Y-%m-%d").date()
-                    dias_en_uso = max((date.today() - fecha_dt).days, 0)
-                    en_uso = True
-                except ValueError:
-                    en_uso = True
-            item["en_uso"] = en_uso
-            item["dias_en_uso"] = dias_en_uso
-            data.append(item)
+        data = [dict(row) for row in cur.fetchall()]
         conn.close()
         return data
+
+    def contar_vehiculos_disponibles(self) -> Tuple[int, int]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COUNT(*) AS total
+            FROM vehiculos
+            WHERE activo=1
+        """)
+        total = cur.fetchone()["total"]
+        cur.execute("""
+            SELECT COUNT(DISTINCT m.vehiculo_id) AS en_uso
+            FROM movimientos m
+            WHERE m.vehiculo_id IS NOT NULL
+              AND m.fecha_entrega IS NOT NULL
+              AND m.devuelto=0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
+        """)
+        en_uso = cur.fetchone()["en_uso"]
+        conn.close()
+        disponibles = max(total - en_uso, 0)
+        return total, disponibles
 
     def solicitar_prestamo(
         self,
@@ -1008,6 +1230,8 @@ class DatabaseManager:
                 return False, "Formato de fecha no valido para el prestamo."
         if not fechas_limpias:
             return False, "Falta seleccionar al menos una fecha."
+        if len(fechas_limpias) > 1:
+            return False, "Solo se permite solicitar un dia por prestamo."
         hoy = date.today()
         lunes = hoy - timedelta(days=hoy.weekday())
         viernes = lunes + timedelta(days=4)
@@ -1077,7 +1301,7 @@ class DatabaseManager:
             placeholders = ",".join(["?"] * len(pasajeros_ids))
             cur.execute(f"""
                 SELECT id
-                FROM usuarios
+                FROM auditores
                 WHERE id IN ({placeholders}) AND activo=1
             """, pasajeros_ids)
             pasajeros = cur.fetchall()
@@ -1278,6 +1502,18 @@ class DatabaseManager:
             return False, {"mensaje": "Vehiculo no encontrado."}
 
         cur.execute("""
+            SELECT 1
+            FROM movimientos
+            WHERE vehiculo_id=?
+              AND fecha_entrega IS NOT NULL
+              AND devuelto=0
+            LIMIT 1
+        """, (vehiculo_id,))
+        if cur.fetchone():
+            conn.close()
+            return False, {"mensaje": "La unidad ya esta en uso."}
+
+        cur.execute("""
             SELECT id, nombre
             FROM usuarios
             WHERE id=? AND activo=1
@@ -1307,7 +1543,7 @@ class DatabaseManager:
             placeholders = ",".join(["?"] * len(pasajeros_ids))
             cur.execute(f"""
                 SELECT id, nombre
-                FROM usuarios
+                FROM auditores
                 WHERE id IN ({placeholders}) AND activo=1
                 ORDER BY nombre
             """, pasajeros_ids)
@@ -1384,7 +1620,7 @@ class DatabaseManager:
         movimiento_id = cur.lastrowid
         if pasajeros_ids:
             cur.executemany("""
-                INSERT INTO movimientos_pasajeros (movimiento_id, usuario_id)
+                INSERT INTO movimientos_auditores (movimiento_id, auditor_id)
                 VALUES (?, ?)
             """, [(movimiento_id, pasajero_id) for pasajero_id in pasajeros_ids])
         if destinos:
@@ -1417,11 +1653,11 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(nombre, ', ')
                        FROM (
-                           SELECT u2.nombre AS nombre
-                           FROM movimientos_pasajeros mp
-                           JOIN usuarios u2 ON u2.id = mp.usuario_id
-                           WHERE mp.movimiento_id = m.id
-                           ORDER BY u2.nombre
+                           SELECT a2.nombre AS nombre
+                           FROM movimientos_auditores ma
+                           JOIN auditores a2 ON a2.id = ma.auditor_id
+                           WHERE ma.movimiento_id = m.id
+                           ORDER BY a2.nombre
                        )
                    ), "") AS pasajeros_nombres,
                    COALESCE((
@@ -1464,7 +1700,72 @@ class DatabaseManager:
         cur.execute(q, params)
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
+        pendientes_por_vehiculo = {}
+        for mov in data:
+            if mov.get("vehiculo_id") and not mov.get("fecha_entrega") and not mov.get("devuelto") and not mov.get("rechazado"):
+                pendientes_por_vehiculo[mov["vehiculo_id"]] = pendientes_por_vehiculo.get(mov["vehiculo_id"], 0) + 1
+        for mov in data:
+            vehiculo_id = mov.get("vehiculo_id")
+            mov["conflicto"] = bool(vehiculo_id and pendientes_por_vehiculo.get(vehiculo_id, 0) > 1)
         return data
+
+    def listar_agenda_semanal(self) -> Dict:
+        hoy = date.today()
+        lunes = hoy - timedelta(days=hoy.weekday())
+        fechas = [lunes + timedelta(days=offset) for offset in range(5)]
+        fechas_iso = {fecha.isoformat() for fecha in fechas}
+        labels = ["Lun", "Mar", "Mie", "Jue", "Vie"]
+        dias = [
+            {
+                "fecha": fecha.isoformat(),
+                "label": f"{labels[idx]} {fecha.day:02d}/{fecha.month:02d}",
+            }
+            for idx, fecha in enumerate(fechas)
+        ]
+
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, vehiculo_id, fechas_solicitadas
+            FROM prestamos_vehiculos
+            WHERE estado='PENDIENTE'
+        """)
+        reservas_por_vehiculo = {}
+        for row in cur.fetchall():
+            vehiculo_id = row["vehiculo_id"]
+            fechas_txt = row["fechas_solicitadas"] or ""
+            fechas_reserva = {
+                fecha.strip()
+                for fecha in fechas_txt.split(",")
+                if fecha.strip() in fechas_iso
+            }
+            if not fechas_reserva:
+                continue
+            reservas_por_vehiculo.setdefault(vehiculo_id, set()).update(fechas_reserva)
+
+        cur.execute("""
+            SELECT v.id, v.placa, v.marca, v.modelo,
+                   COALESCE(GROUP_CONCAT(u.nombre, ', '), '') AS propietarios
+            FROM vehiculos v
+            LEFT JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
+            LEFT JOIN usuarios u ON u.id = uv.usuario_id
+            WHERE v.activo=1
+            GROUP BY v.id
+            ORDER BY v.placa
+        """)
+        vehiculos = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item["reservas"] = reservas_por_vehiculo.get(item["id"], set())
+            vehiculos.append(item)
+        conn.close()
+
+        return {
+            "inicio": lunes.isoformat(),
+            "fin": fechas[-1].isoformat(),
+            "fechas": dias,
+            "vehiculos": vehiculos,
+        }
 
     def listar_movimientos_entregados(self, usuario_id: int, fecha_iso: str) -> List[Dict]:
         conn = self._connect()
@@ -1483,11 +1784,11 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(nombre, ', ')
                        FROM (
-                           SELECT u2.nombre AS nombre
-                           FROM movimientos_pasajeros mp
-                           JOIN usuarios u2 ON u2.id = mp.usuario_id
-                           WHERE mp.movimiento_id = m.id
-                           ORDER BY u2.nombre
+                           SELECT a2.nombre AS nombre
+                           FROM movimientos_auditores ma
+                           JOIN auditores a2 ON a2.id = ma.auditor_id
+                           WHERE ma.movimiento_id = m.id
+                           ORDER BY a2.nombre
                        )
                    ), "") AS pasajeros_nombres,
                    COALESCE((
@@ -1542,11 +1843,11 @@ class DatabaseManager:
                    COALESCE((
                        SELECT group_concat(nombre, ', ')
                        FROM (
-                           SELECT u2.nombre AS nombre
-                           FROM movimientos_pasajeros mp
-                           JOIN usuarios u2 ON u2.id = mp.usuario_id
-                           WHERE mp.movimiento_id = m.id
-                           ORDER BY u2.nombre
+                           SELECT a2.nombre AS nombre
+                           FROM movimientos_auditores ma
+                           JOIN auditores a2 ON a2.id = ma.auditor_id
+                           WHERE ma.movimiento_id = m.id
+                           ORDER BY a2.nombre
                        )
                    ), "") AS pasajeros_nombres,
                    COALESCE((

@@ -16,10 +16,25 @@
       <h2>Registro de solicitud</h2>
       <p class="subtitle">Concentre datos clave en una sola captura.</p>
     </div>
-    <form method="post" action="{{ url_for('solicitar') }}" class="form-sections">
+    <form method="post" action="{{ url_for('solicitar') }}" class="form-sections" id="solicitud_form">
       {% if error %}
       <div class="alert full">{{ error }}</div>
       {% endif %}
+      {% if ok %}
+      <div class="alert full">{{ ok }}</div>
+      {% endif %}
+
+      <fieldset class="form-section">
+        <legend>Tipo de solicitud</legend>
+        <label class="full">
+          Tipo de solicitud
+          <select name="tipo_solicitud" id="tipo_solicitud" required>
+            <option value="normal" {% if tipo_solicitud != "prestamo" %}selected{% endif %}>Solicitud de unidad</option>
+            <option value="prestamo" {% if tipo_solicitud == "prestamo" %}selected{% endif %}>Préstamo entre usuarios</option>
+          </select>
+        </label>
+        <p class="hint">Use la opción de préstamo para apartar unidades de otro usuario durante la semana actual.</p>
+      </fieldset>
 
       <fieldset class="form-section">
         <legend>Unidad</legend>
@@ -27,26 +42,71 @@
           Placa de la unidad
           <select name="vehiculo_id" id="vehiculo_id" required>
             {% if vehiculos %}
+            <optgroup label="Mis unidades">
               {% for vehiculo in vehiculos %}
-              <option value="{{ vehiculo.id }}" data-marca="{{ vehiculo.marca }}" data-modelo="{{ vehiculo.modelo }}">{{ vehiculo.placa }}</option>
+              <option value="{{ vehiculo.id }}:{{ usuario_id }}"
+                data-scope="propio"
+                data-marca="{{ vehiculo.marca }}"
+                data-modelo="{{ vehiculo.modelo }}"
+                data-placa="{{ vehiculo.placa }}"
+                data-propietario="{{ usuario }}">
+                {{ vehiculo.placa }}
+              </option>
               {% endfor %}
-            {% else %}
-              <option value="" disabled selected>No hay vehiculos registrados</option>
+            </optgroup>
+            {% endif %}
+            {% if vehiculos_prestables %}
+            <optgroup label="Unidades de otros usuarios">
+              {% for vehiculo in vehiculos_prestables %}
+              <option value="{{ vehiculo.id }}:{{ vehiculo.propietario_id }}"
+                data-scope="prestamo"
+                data-placa="{{ vehiculo.placa }}"
+                data-privado="true">
+                {{ vehiculo.placa }}
+              </option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+            {% if not vehiculos and not vehiculos_prestables %}
+              <option value="" disabled selected>No hay vehiculos disponibles</option>
             {% endif %}
           </select>
         </label>
-        <label>
-          Marca
-          <input type="text" id="marca_unidad" readonly required>
-        </label>
-        <label>
-          Modelo
-          <input type="text" id="modelo_unidad" readonly required>
-        </label>
+        <div class="full unit-summary" id="unidad_resumen">
+          <div>
+            <span class="summary-label">Unidad seleccionada</span>
+            <strong id="unidad_placa">Seleccione una unidad</strong>
+          </div>
+          <div>
+            <span class="summary-label">Marca y modelo</span>
+            <strong id="unidad_modelo">-</strong>
+          </div>
+          <div>
+            <span class="summary-label">Responsable actual</span>
+            <strong id="unidad_propietario">-</strong>
+          </div>
+        </div>
         <label class="full">
           Nombre del resguardante
           <input type="text" value="{{ usuario }}" readonly>
         </label>
+      </fieldset>
+
+      <fieldset class="form-section" id="prestamo_fechas_section" hidden>
+        <legend>Fecha de prestamo</legend>
+        <div class="full week-picker">
+          <div class="week-picker-header">
+            <div>
+              <span class="summary-label">Semana actual</span>
+              <strong id="week_range">-</strong>
+            </div>
+          </div>
+          <div id="fechas_list" class="week-chips"></div>
+          <div class="multi-select-meta">
+            <span id="fecha_seleccion" class="multi-count">Ningun dia seleccionado</span>
+            <span class="multi-hint">Solo un dia habil de la semana actual.</span>
+          </div>
+        </div>
       </fieldset>
 
       <fieldset class="form-section">
@@ -68,26 +128,26 @@
           <input type="number" name="no_pasajeros" id="no_pasajeros" inputmode="numeric" min="0" max="4" step="1" value="4" required>
         </label>
         <label class="full">
-          Nombre de los pasajeros
+          Nombre de los auditores
           <div class="combobox-container" id="pasajeros_container">
             <div class="combobox-search">
-              <input type="search" id="pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar pasajeros..." autocomplete="off">
+              <input type="search" id="pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar auditores..." autocomplete="off">
               <div id="pasajeros_dropdown" class="combobox-dropdown" hidden></div>
             </div>
             <select name="pasajeros_ids" id="pasajeros_ids" data-max="4" multiple hidden>
-              {% if usuarios %}
-                {% for usuario in usuarios %}
-                <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
+              {% if auditores %}
+                {% for auditor in auditores %}
+                <option value="{{ auditor.id }}">{{ auditor.nombre }}</option>
                 {% endfor %}
               {% else %}
-                <option value="" disabled>No hay usuarios registrados</option>
+                <option value="" disabled>No hay auditores registrados</option>
               {% endif %}
             </select>
             <div class="combobox-meta">
               <span id="pasajeros_count" class="multi-count">0 seleccionados</span>
             </div>
             <div id="pasajeros_chips" class="combobox-chips" aria-live="polite">
-              <span class="chip-empty">Ningún pasajero seleccionado</span>
+              <span class="chip-empty">Ningún auditor seleccionado</span>
             </div>
           </div>
           <div class="passenger-note">
@@ -136,259 +196,109 @@
         </label>
       </fieldset>
 
+      <fieldset class="form-section">
+        <label class="full">
+          Observaciones (opcional)
+          <textarea name="notas" rows="3" placeholder="Detalle breve de la solicitud"></textarea>
+        </label>
+      </fieldset>
+
       <div class="actions full">
-        <button class="btn primary" type="submit">Registrar solicitud y generar reporte</button>
+        <button class="btn primary" type="submit" id="solicitud_submit">Registrar solicitud</button>
       </div>
     </form>
   </div>
-  <div class="card">
-    <div class="card-header">
-      <h2>Prestamo entre usuarios</h2>
-      <p class="subtitle">Solicite una unidad asignada a otro responsable.</p>
-    </div>
-    <form method="post" action="{{ url_for('solicitar_prestamo') }}" class="form-sections prestamo-form">
-      {% if prestamo_error %}
-      <div class="alert full">{{ prestamo_error }}</div>
-      {% endif %}
-      {% if prestamo_ok %}
-      <div class="alert full">{{ prestamo_ok }}</div>
-      {% endif %}
-      <fieldset class="form-section">
-        <legend>Unidad</legend>
-        <label class="full">
-          Vehiculo solicitado
-          <select name="prestamo_vehiculo" id="prestamo_vehiculo" required>
-            {% if vehiculos_prestables %}
-              <option value="" disabled selected>Seleccione un vehiculo disponible</option>
-              {% for vehiculo in vehiculos_prestables %}
-              <option value="{{ vehiculo.id }}:{{ vehiculo.propietario_id }}"
-                data-marca="{{ vehiculo.marca }}"
-                data-modelo="{{ vehiculo.modelo }}"
-                data-placa="{{ vehiculo.placa }}"
-                data-propietario="{{ vehiculo.propietario_nombre }}"
-                {% if vehiculo.en_uso %}disabled{% endif %}>
-                [{{ vehiculo.placa }}] · {{ vehiculo.propietario_nombre }}{% if vehiculo.en_uso %} · Ocupado{% if vehiculo.dias_en_uso is not none %} hace {{ vehiculo.dias_en_uso }} dias{% endif %}{% endif %}
-              </option>
-              {% endfor %}
-            {% else %}
-              <option value="" disabled selected>No hay vehiculos prestables</option>
-            {% endif %}
-          </select>
-        </label>
-        <div class="full unit-summary" id="prestamo_unidad_resumen">
-          <div>
-            <span class="summary-label">Unidad seleccionada</span>
-            <strong id="prestamo_unidad_placa">Seleccione una unidad</strong>
-          </div>
-          <div>
-            <span class="summary-label">Marca y modelo</span>
-            <strong id="prestamo_unidad_modelo">-</strong>
-          </div>
-          <div>
-            <span class="summary-label">Responsable actual</span>
-            <strong id="prestamo_unidad_propietario">-</strong>
-          </div>
-        </div>
-      </fieldset>
 
-      <fieldset class="form-section">
-        <legend>Fechas</legend>
-        <div class="full week-picker">
-          <div class="week-picker-header">
-            <div>
-              <span class="summary-label">Semana actual</span>
-              <strong id="prestamo_week_range">-</strong>
-            </div>
-            <label class="week-toggle">
-              <input type="checkbox" id="prestamo_week_all">
-              Pedir toda la semana
-            </label>
-          </div>
-          <div id="prestamo_fechas_list" class="week-chips"></div>
-          <div class="multi-select-meta">
-            <span id="prestamo_fechas_count" class="multi-count">0 seleccionados</span>
-            <span class="multi-hint">Solo dias habiles de la semana actual.</span>
-          </div>
-        </div>
-      </fieldset>
-
-      <fieldset class="form-section">
-        <legend>Personal</legend>
-        <label class="full">
-          Responsable del vehiculo
-          <select name="prestamo_responsable_usuario_id" required>
-            {% if usuarios %}
-              {% for usuario in usuarios %}
-              <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
-              {% endfor %}
-            {% else %}
-              <option value="" disabled selected>No hay usuarios registrados</option>
-            {% endif %}
-          </select>
-        </label>
-        <label>
-          No. de pasajeros
-          <input type="number" name="prestamo_no_pasajeros" id="prestamo_no_pasajeros" inputmode="numeric" min="0" max="4" step="1" value="4" required>
-        </label>
-        <label class="full">
-          Nombre de los pasajeros
-          <div class="combobox-container" id="prestamo_pasajeros_container">
-            <div class="combobox-search">
-              <input type="search" id="prestamo_pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar pasajeros..." autocomplete="off">
-              <div id="prestamo_pasajeros_dropdown" class="combobox-dropdown" hidden></div>
-            </div>
-            <select name="prestamo_pasajeros_ids" id="prestamo_pasajeros_ids" data-max="4" multiple hidden>
-              {% if usuarios %}
-                {% for usuario in usuarios %}
-                <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
-                {% endfor %}
-              {% else %}
-                <option value="" disabled>No hay usuarios registrados</option>
-              {% endif %}
-            </select>
-            <div class="combobox-meta">
-              <span id="prestamo_pasajeros_count" class="multi-count">0 seleccionados</span>
-            </div>
-            <div id="prestamo_pasajeros_chips" class="combobox-chips" aria-live="polite">
-              <span class="chip-empty">Ningún pasajero seleccionado</span>
-            </div>
-          </div>
-          <div class="passenger-note">
-            <strong>Importante</strong>
-            <p>El conductor cuenta como pasajero. Seleccione exactamente el mismo numero indicado. Maximo 5 ocupantes en total.</p>
-            <p>Esta estrictamente prohibido que en vehiculo oficial viajen mas de 5 ocupantes.</p>
-          </div>
-        </label>
-      </fieldset>
-
-      <fieldset class="form-section">
-        <legend>Ruta y motivo</legend>
-        <label class="full">
-          Ruta - destino
-          <div class="combobox-container">
-            <div class="combobox-search">
-              <input type="search" id="prestamo_ruta_search" class="combobox-input" placeholder="Buscar destino o dependencia..." autocomplete="off">
-              <div id="prestamo_ruta_dropdown" class="combobox-dropdown" hidden></div>
-            </div>
-            <select name="prestamo_ruta_destinos" id="prestamo_ruta_destinos" multiple hidden required>
-              {% if entes %}
-                {% for ente in entes %}
-                <option value="{{ ente.clave }}" data-nombre="{{ ente.nombre }}">{{ ente.nombre }}</option>
-                {% endfor %}
-              {% else %}
-                <option value="" disabled>No hay destinos registrados</option>
-              {% endif %}
-            </select>
-            <div class="combobox-meta">
-              <span id="prestamo_ruta_count" class="multi-count">0 seleccionados</span>
-            </div>
-            <div id="prestamo_ruta_chips" class="combobox-chips" aria-live="polite">
-              <span class="chip-empty">Ningún destino seleccionado</span>
-            </div>
-          </div>
-        </label>
-        <label class="full">
-          Motivo de salida
-          <select name="prestamo_motivo_salida" required>
-            <option value="Notificación de Oficio">Notificación de Oficio</option>
-            <option value="Revisión de Auditoría">Revisión de Auditoría</option>
-            <option value="Entrega de Recepción">Entrega de Recepción</option>
-            <option value="Compulsas">Compulsas</option>
-            <option value="Inspección Física">Inspección Física</option>
-          </select>
-        </label>
-      </fieldset>
-
-      <fieldset class="form-section">
-        <label class="full">
-          Motivo del prestamo (opcional)
-          <textarea name="prestamo_notas" rows="3" placeholder="Detalle breve de la solicitud"></textarea>
-        </label>
-      </fieldset>
-      <div class="actions full">
-        <button class="btn ghost" type="submit">Enviar solicitud de prestamo</button>
-      </div>
-    </form>
-  </div>
 </section>
 
 <script>
+  const tipoSelect = document.getElementById("tipo_solicitud");
   const vehiculoSelect = document.getElementById("vehiculo_id");
-  const marcaInput = document.getElementById("marca_unidad");
-  const modeloInput = document.getElementById("modelo_unidad");
+  const unidadPlaca = document.getElementById("unidad_placa");
+  const unidadModelo = document.getElementById("unidad_modelo");
+  const unidadPropietario = document.getElementById("unidad_propietario");
+  const prestamoFechasSection = document.getElementById("prestamo_fechas_section");
+  const solicitudForm = document.getElementById("solicitud_form");
+  const submitBtn = document.getElementById("solicitud_submit");
   const noPasajerosInput = document.getElementById("no_pasajeros");
-  const solicitudForm = document.querySelector("form.form-sections:not(.prestamo-form)");
-  const prestamoVehiculoSelect = document.getElementById("prestamo_vehiculo");
-  const prestamoUnidadPlaca = document.getElementById("prestamo_unidad_placa");
-  const prestamoUnidadModelo = document.getElementById("prestamo_unidad_modelo");
-  const prestamoUnidadPropietario = document.getElementById("prestamo_unidad_propietario");
-  const prestamoNoPasajerosInput = document.getElementById("prestamo_no_pasajeros");
-  const prestamoForm = document.querySelector("form.prestamo-form");
 
-  // Actualizar marca y modelo cuando se selecciona un vehículo
-  const actualizarVehiculo = (selectEl, marcaEl, modeloEl, propietarioEl) => {
-    const selected = selectEl?.selectedOptions?.[0];
-    if (!selected) {
+  const weekRangeEl = document.getElementById("week_range");
+  const weekList = document.getElementById("fechas_list");
+  const weekSelected = document.getElementById("fecha_seleccion");
+
+  const updateUnidadResumen = () => {
+    if (!vehiculoSelect) {
       return;
     }
-    if (marcaEl) {
-      marcaEl.value = selected.dataset.marca || "";
+    const selected = vehiculoSelect.selectedOptions?.[0];
+    if (!selected) {
+      unidadPlaca.textContent = "Seleccione una unidad";
+      unidadModelo.textContent = "-";
+      unidadPropietario.textContent = "-";
+      return;
     }
-    if (modeloEl) {
-      modeloEl.value = selected.dataset.modelo || "";
+    unidadPlaca.textContent = selected.dataset.placa || "Unidad seleccionada";
+    if (selected.dataset.privado === "true") {
+      unidadModelo.textContent = "-";
+      unidadPropietario.textContent = "-";
+      return;
     }
-    if (propietarioEl) {
-      propietarioEl.value = selected.dataset.propietario || "";
+    const marca = selected.dataset.marca || "-";
+    const modelo = selected.dataset.modelo || "-";
+    unidadModelo.textContent = `${marca} ${modelo}`.trim();
+    unidadPropietario.textContent = selected.dataset.propietario || "-";
+  };
+
+  const applyTipoFiltro = () => {
+    const tipo = (tipoSelect?.value || "normal").toLowerCase();
+    const esPrestamo = tipo === "prestamo";
+    if (prestamoFechasSection) {
+      prestamoFechasSection.hidden = !esPrestamo;
     }
+    if (submitBtn) {
+      submitBtn.textContent = esPrestamo ? "Registrar préstamo" : "Registrar solicitud";
+    }
+    if (vehiculoSelect) {
+      const options = Array.from(vehiculoSelect.options);
+      let selectedVisible = false;
+      options.forEach((opt) => {
+        const scope = opt.dataset.scope;
+        if (!scope) {
+          return;
+        }
+        const visible = esPrestamo ? scope === "prestamo" : scope === "propio";
+        opt.hidden = !visible;
+        if (opt.selected && visible) {
+          selectedVisible = true;
+        }
+      });
+      if (!selectedVisible) {
+        const firstVisible = options.find(opt => !opt.hidden && !opt.disabled);
+        if (firstVisible) {
+          firstVisible.selected = true;
+        }
+      }
+    }
+    if (!esPrestamo && weekList) {
+      weekList.querySelectorAll("input[type='radio']").forEach((input) => {
+        input.checked = false;
+        const label = input.closest(".week-chip");
+        if (label) {
+          label.classList.remove("is-selected");
+        }
+      });
+      updateSelectedDay();
+    }
+    updateUnidadResumen();
   };
 
   if (vehiculoSelect) {
-    vehiculoSelect.addEventListener("change", () => actualizarVehiculo(vehiculoSelect, marcaInput, modeloInput));
-    actualizarVehiculo(vehiculoSelect, marcaInput, modeloInput);
+    vehiculoSelect.addEventListener("change", updateUnidadResumen);
+    updateUnidadResumen();
   }
-
-  if (prestamoVehiculoSelect) {
-    prestamoVehiculoSelect.addEventListener("change", () => actualizarVehiculo(
-      prestamoVehiculoSelect,
-      null,
-      null,
-      null,
-    ));
-    actualizarVehiculo(
-      prestamoVehiculoSelect,
-      null,
-      null,
-      null,
-    );
+  if (tipoSelect) {
+    tipoSelect.addEventListener("change", applyTipoFiltro);
   }
-
-  const updatePrestamoResumen = () => {
-    if (!prestamoVehiculoSelect) {
-      return;
-    }
-    const selected = prestamoVehiculoSelect.selectedOptions?.[0];
-    if (!selected) {
-      prestamoUnidadPlaca.textContent = "Seleccione una unidad";
-      prestamoUnidadModelo.textContent = "-";
-      prestamoUnidadPropietario.textContent = "-";
-      return;
-    }
-    prestamoUnidadPlaca.textContent = selected.dataset.placa || "Unidad seleccionada";
-    const marca = selected.dataset.marca || "-";
-    const modelo = selected.dataset.modelo || "-";
-    prestamoUnidadModelo.textContent = `${marca} ${modelo}`.trim();
-    prestamoUnidadPropietario.textContent = selected.dataset.propietario || "-";
-  };
-
-  if (prestamoVehiculoSelect) {
-    prestamoVehiculoSelect.addEventListener("change", updatePrestamoResumen);
-    updatePrestamoResumen();
-  }
-
-  const weekRangeEl = document.getElementById("prestamo_week_range");
-  const weekList = document.getElementById("prestamo_fechas_list");
-  const weekAll = document.getElementById("prestamo_week_all");
-  const weekCount = document.getElementById("prestamo_fechas_count");
 
   const formatDateLabel = (dt) => {
     const dias = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
@@ -438,8 +348,8 @@
       const label = document.createElement("label");
       label.className = "week-chip";
       const input = document.createElement("input");
-      input.type = "checkbox";
-      input.name = "prestamo_fechas";
+      input.type = "radio";
+      input.name = "fecha_prestamo";
       input.value = isoDate(dt);
       const text = document.createElement("span");
       text.textContent = formatDateLabel(dt);
@@ -447,66 +357,43 @@
       label.appendChild(text);
       weekList.appendChild(label);
     }
-    if (weekAll) {
-      weekAll.disabled = false;
-    }
   };
 
-  const refreshWeekToggle = () => {
-    if (!weekAll || !weekList) {
+  const updateSelectedDay = () => {
+    if (!weekList || !weekSelected) {
       return;
     }
-    const inputs = Array.from(weekList.querySelectorAll("input[type='checkbox']"));
-    if (!inputs.length) {
-      weekAll.checked = false;
-      weekAll.disabled = true;
+    const selected = weekList.querySelector("input[type='radio']:checked");
+    if (!selected) {
+      weekSelected.textContent = "Ningun dia seleccionado";
       return;
     }
-    weekAll.checked = inputs.every(input => input.checked);
-  };
-
-  const updateWeekCount = () => {
-    if (!weekList || !weekCount) {
-      return;
-    }
-    const selected = weekList.querySelectorAll("input[type='checkbox']:checked").length;
-    weekCount.textContent = `${selected} seleccionado${selected !== 1 ? "s" : ""}`;
-    refreshWeekToggle();
+    const label = selected.closest(".week-chip")?.querySelector("span")?.textContent;
+    weekSelected.textContent = label ? `Dia seleccionado: ${label}` : "Dia seleccionado";
   };
 
   if (weekList) {
     weekList.addEventListener("change", (event) => {
       const target = event.target;
-      if (target && target.matches("input[type='checkbox']")) {
+      if (target && target.matches("input[type='radio']")) {
+        weekList.querySelectorAll(".week-chip").forEach((chip) => {
+          chip.classList.remove("is-selected");
+        });
         const label = target.closest(".week-chip");
         if (label) {
-          label.classList.toggle("is-selected", target.checked);
+          label.classList.add("is-selected");
         }
-        updateWeekCount();
+        updateSelectedDay();
       }
     });
   }
 
-  if (weekAll && weekList) {
-    weekAll.addEventListener("change", () => {
-      const checks = weekList.querySelectorAll("input[type='checkbox']");
-      checks.forEach((input) => {
-        input.checked = weekAll.checked;
-        const label = input.closest(".week-chip");
-        if (label) {
-          label.classList.toggle("is-selected", input.checked);
-        }
-      });
-      updateWeekCount();
-    });
-  }
-
   buildWeekPicker();
-  updateWeekCount();
+  updateSelectedDay();
+  applyTipoFiltro();
 
   const MAX_PASAJEROS = 4;
 
-  // Sistema de combobox mejorado para selección múltiple
   function setupCombobox(searchInputId, dropdownId, selectId, chipsId, countId, passengerLimitInput) {
     const searchInput = document.getElementById(searchInputId);
     const dropdown = document.getElementById(dropdownId);
@@ -642,7 +529,6 @@
       }
     };
 
-    // Event listeners
     searchInput.addEventListener("input", () => {
       const filtered = filterOptions(searchInput.value);
       showDropdown(filtered);
@@ -685,7 +571,6 @@
       }
     });
 
-    // Cerrar dropdown al hacer clic fuera
     document.addEventListener("click", (e) => {
       if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
         hideDropdown();
@@ -698,7 +583,6 @@
     return { updateChips, updateCount, selectEl };
   }
 
-  // Inicializar comboboxes
   const pasajerosCombobox = setupCombobox(
     "pasajeros_search",
     "pasajeros_dropdown",
@@ -708,21 +592,6 @@
     noPasajerosInput,
   );
   const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");
-  const prestamoPasajerosCombobox = setupCombobox(
-    "prestamo_pasajeros_search",
-    "prestamo_pasajeros_dropdown",
-    "prestamo_pasajeros_ids",
-    "prestamo_pasajeros_chips",
-    "prestamo_pasajeros_count",
-    prestamoNoPasajerosInput,
-  );
-  const prestamoRutaCombobox = setupCombobox(
-    "prestamo_ruta_search",
-    "prestamo_ruta_dropdown",
-    "prestamo_ruta_destinos",
-    "prestamo_ruta_chips",
-    "prestamo_ruta_count",
-  );
 
   const setupPassengerValidation = (formEl, pasajerosInput, pasajerosSelectId, pasajerosCombobox, containerId) => {
     if (!formEl || !pasajerosInput) {
@@ -790,20 +659,17 @@
   };
 
   setupPassengerValidation(solicitudForm, noPasajerosInput, "pasajeros_ids", pasajerosCombobox, "pasajeros_container");
-  setupPassengerValidation(
-    prestamoForm,
-    prestamoNoPasajerosInput,
-    "prestamo_pasajeros_ids",
-    prestamoPasajerosCombobox,
-    "prestamo_pasajeros_container",
-  );
 
-  if (prestamoForm && weekList) {
-    prestamoForm.addEventListener("submit", (event) => {
-      const selected = weekList.querySelectorAll("input[type='checkbox']:checked");
-      if (!selected.length) {
+  if (solicitudForm && weekList) {
+    solicitudForm.addEventListener("submit", (event) => {
+      const tipo = (tipoSelect?.value || "normal").toLowerCase();
+      if (tipo !== "prestamo") {
+        return;
+      }
+      const selected = weekList.querySelector("input[type='radio']:checked");
+      if (!selected) {
         event.preventDefault();
-        alert("Seleccione al menos un dia habil de la semana actual para el prestamo.");
+        alert("Seleccione un dia habil de la semana actual para el prestamo.");
       }
     });
   }

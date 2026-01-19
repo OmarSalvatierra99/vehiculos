@@ -44,6 +44,9 @@
     </div>
     {% endif %}
   </div>
+  {% if error %}
+  <div class="alert full">{{ error }}</div>
+  {% endif %}
   {% if movimientos %}
   <div class="table table-7">
     <div class="table-row header">
@@ -65,6 +68,8 @@
       <span>
         {% if mov.data.rechazado %}
           Rechazado
+        {% elif mov.data.conflicto and not mov.data.fecha_entrega %}
+          Conflicto
         {% elif mov.data.devuelto %}
           Devuelto
         {% elif mov.alerta %}

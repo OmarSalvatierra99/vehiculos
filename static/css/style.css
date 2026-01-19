@@ -1073,6 +1073,7 @@ textarea {
     margin: 8mm;
   }
 
+  html,
   body {
     background: #ffffff;
     color: #000000;
@@ -1104,6 +1105,7 @@ textarea {
     display: block !important;
     box-shadow: none;
     border: none;
+    width: 100%;
   }
 
   .report-actions {
@@ -1169,6 +1171,7 @@ textarea {
     width: 100%;
     border-collapse: collapse;
     font-size: 9pt;
+    table-layout: fixed;
   }
 
   .report .table-row {
@@ -1184,6 +1187,7 @@ textarea {
     padding: 6px 8px;
     border: 1px solid #000000;
     vertical-align: top;
+    word-break: break-word;
   }
 
   .report .table-row.header span {
