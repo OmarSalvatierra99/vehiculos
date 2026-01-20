@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}REPORTE DIARIO · INVENTARIO VEHICULAR{% endblock %}
+{% block title %}REPORTES · INVENTARIO VEHICULAR{% endblock %}
 
 {% block content %}
 <section class="card report">
@@ -28,14 +28,18 @@
     <p class="report-warning">ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MAS DE 5 OCUPANTES</p>
   </div>
 
-  <div class="actions report-actions">
-    <form method="get" action="{{ url_for('reporte_diario') }}">
-      <label>
-        Fecha del reporte
-        <input type="date" name="fecha" value="{{ fecha }}" required>
+  <div class="actions report-actions report-filter">
+    <form method="get" action="{{ url_for('reporte_diario') }}" class="report-filter-form">
+      <label class="report-filter-field">
+        <span>Fecha del reporte</span>
+        <input class="date-input" type="date" name="fecha" value="{{ fecha }}" required>
       </label>
       <button class="btn ghost" type="submit">Ver reporte</button>
     </form>
+    <div class="report-filter-chip">
+      <span>Reporte seleccionado</span>
+      <strong>{{ fecha_larga }}</strong>
+    </div>
   </div>
 
   {% if movimientos %}

@@ -4,8 +4,10 @@ Utilidades y acceso a datos para Inventarios OFS.
 
 import hashlib
 import logging
+import random
 import re
 import sqlite3
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta
@@ -225,7 +227,7 @@ class DatabaseManager:
         self._seed_resguardantes()
 
     def _connect(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -1530,39 +1532,55 @@ class DatabaseManager:
         if entes_validos != set(destinos):
             conn.close()
             return False, {"mensaje": "Destinos no encontrados en catalogo de entes."}
-        folio = self._generar_folio(cur)
+        folio = None
         receptor_nombre = receptor_nombre.strip() or resguardante["nombre"]
         ente_clave = ente_clave or destinos[0]
 
-        cur.execute("""
-            INSERT INTO movimientos (
-                folio, usuario_id, ente_clave, fecha_solicitud,
-                cantidad, receptor_nombre, firma_recepcion, observaciones,
-                resguardante_nombre, resguardante_id, placa_unidad, marca, modelo,
-                responsable_vehiculo, vehiculo_id, responsable_id,
-                no_pasajeros, ruta_destino, motivo_salida
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            folio,
-            usuario_id,
-            ente_clave,
-            fecha_solicitud,
-            int(cantidad),
-            receptor_nombre.strip(),
-            firma_recepcion.strip() if firma_recepcion else None,
-            observaciones.strip() if observaciones else None,
-            resguardante["nombre"],
-            resguardante["id"],
-            vehiculo["placa"],
-            vehiculo["marca"],
-            vehiculo["modelo"],
-            responsable_nombre,
-            int(vehiculo_id),
-            responsable_id_db,
-            int(no_pasajeros_int),
-            " -> ".join(destinos),
-            motivo_salida.strip(),
-        ))
+        max_intentos = 3
+        for intento in range(max_intentos):
+            folio = self._generar_folio(cur)
+            try:
+                cur.execute("""
+                    INSERT INTO movimientos (
+                        folio, usuario_id, ente_clave, fecha_solicitud,
+                        cantidad, receptor_nombre, firma_recepcion, observaciones,
+                        resguardante_nombre, resguardante_id, placa_unidad, marca, modelo,
+                        responsable_vehiculo, vehiculo_id, responsable_id,
+                        no_pasajeros, ruta_destino, motivo_salida
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    folio,
+                    usuario_id,
+                    ente_clave,
+                    fecha_solicitud,
+                    int(cantidad),
+                    receptor_nombre.strip(),
+                    firma_recepcion.strip() if firma_recepcion else None,
+                    observaciones.strip() if observaciones else None,
+                    resguardante["nombre"],
+                    resguardante["id"],
+                    vehiculo["placa"],
+                    vehiculo["marca"],
+                    vehiculo["modelo"],
+                    responsable_nombre,
+                    int(vehiculo_id),
+                    responsable_id_db,
+                    int(no_pasajeros_int),
+                    " -> ".join(destinos),
+                    motivo_salida.strip(),
+                ))
+                break
+            except sqlite3.IntegrityError as exc:
+                if "movimientos.folio" in str(exc) and intento < max_intentos - 1:
+                    continue
+                conn.close()
+                return False, {"mensaje": "No se pudo generar un folio unico. Intente de nuevo."}
+            except sqlite3.OperationalError as exc:
+                if "database is locked" in str(exc).lower() and intento < max_intentos - 1:
+                    time.sleep(0.2)
+                    continue
+                conn.close()
+                return False, {"mensaje": "No se pudo registrar el movimiento. Intente de nuevo."}
 
         movimiento_id = cur.lastrowid
         if pasajeros_ids:
@@ -1646,11 +1664,20 @@ class DatabaseManager:
         conn.close()
         pendientes_por_vehiculo = {}
         for mov in data:
-            if mov.get("vehiculo_id") and not mov.get("fecha_entrega") and not mov.get("devuelto") and not mov.get("rechazado"):
-                pendientes_por_vehiculo[mov["vehiculo_id"]] = pendientes_por_vehiculo.get(mov["vehiculo_id"], 0) + 1
+            if (
+                mov.get("vehiculo_id")
+                and mov.get("fecha_solicitud")
+                and not mov.get("fecha_entrega")
+                and not mov.get("devuelto")
+                and not mov.get("rechazado")
+            ):
+                clave = (mov["vehiculo_id"], mov["fecha_solicitud"])
+                pendientes_por_vehiculo[clave] = pendientes_por_vehiculo.get(clave, 0) + 1
         for mov in data:
-            vehiculo_id = mov.get("vehiculo_id")
-            mov["conflicto"] = bool(vehiculo_id and pendientes_por_vehiculo.get(vehiculo_id, 0) > 1)
+            clave = None
+            if mov.get("vehiculo_id") and mov.get("fecha_solicitud"):
+                clave = (mov["vehiculo_id"], mov["fecha_solicitud"])
+            mov["conflicto"] = bool(clave and pendientes_por_vehiculo.get(clave, 0) > 1)
         return data
 
     def listar_agenda_semanal(self) -> Dict:
@@ -1757,12 +1784,16 @@ class DatabaseManager:
             LEFT JOIN entes e ON e.clave = m.ente_clave
             LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
             LEFT JOIN usuarios uresp ON uresp.id = m.responsable_id
-            JOIN movimientos_eventos me ON me.movimiento_id = m.id
-            WHERE me.evento = 'ENTREGADO'
-              AND me.usuario_id = ?
-              AND me.fecha = ?
+            WHERE m.fecha_solicitud = ?
+              AND m.fecha_entrega IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
             ORDER BY m.created_at DESC
-        """, (usuario_id, fecha_iso))
+        """, (fecha_iso,))
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
         return data
@@ -1824,7 +1855,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, fecha_entrega, devuelto, vehiculo_id
+            SELECT id, fecha_entrega, devuelto, vehiculo_id, fecha_solicitud
             FROM movimientos
             WHERE id=?
         """, (movimiento_id,))
@@ -1846,13 +1877,15 @@ class DatabaseManager:
             conn.close()
             return False, "El movimiento ya fue entregado."
         vehiculo_id = row["vehiculo_id"]
+        fecha_solicitud = row["fecha_solicitud"]
         if vehiculo_id:
             cur.execute("""
                 SELECT 1
                 FROM movimientos m
                 WHERE m.vehiculo_id=?
                   AND m.id != ?
-                  AND m.fecha_entrega=?
+                  AND m.fecha_solicitud=?
+                  AND m.fecha_entrega IS NOT NULL
                   AND m.devuelto=0
                   AND NOT EXISTS (
                       SELECT 1
@@ -1861,10 +1894,10 @@ class DatabaseManager:
                         AND me.evento = 'RECHAZADO'
                   )
                 LIMIT 1
-            """, (vehiculo_id, movimiento_id, _hoy_iso()))
+            """, (vehiculo_id, movimiento_id, fecha_solicitud))
             if cur.fetchone():
                 conn.close()
-                return False, "Ya existe una entrega validada para esta unidad hoy."
+                return False, "Ya existe una entrega validada para esta unidad en la misma fecha solicitada."
         cur.execute("""
             UPDATE movimientos
             SET fecha_entrega=?
@@ -1877,6 +1910,7 @@ class DatabaseManager:
                 FROM movimientos m
                 WHERE m.vehiculo_id=?
                   AND m.id != ?
+                  AND m.fecha_solicitud=?
                   AND m.fecha_entrega IS NULL
                   AND m.devuelto=0
                   AND NOT EXISTS (
@@ -1885,7 +1919,7 @@ class DatabaseManager:
                       WHERE me.movimiento_id = m.id
                         AND me.evento = 'RECHAZADO'
                   )
-            """, (vehiculo_id, movimiento_id))
+            """, (vehiculo_id, movimiento_id, fecha_solicitud))
             for pendiente in cur.fetchall():
                 self._registrar_evento(
                     cur,
@@ -1976,10 +2010,8 @@ class DatabaseManager:
         """, (movimiento_id, usuario_id, evento, _hoy_iso(), notas))
 
     def _generar_folio(self, cur) -> str:
-        hoy = datetime.now().strftime("%Y%m%d")
-        cur.execute("""
-            SELECT COUNT(*) FROM movimientos
-            WHERE fecha_solicitud=?
-        """, (_hoy_iso(),))
-        contador = cur.fetchone()[0] + 1
-        return f"ACTA-{hoy}-{contador:04d}"
+        ahora = datetime.now()
+        fecha = ahora.strftime("%Y%m%d")
+        hora = ahora.strftime("%H%M%S")
+        sufijo = random.randint(0, 999)
+        return f"ACTA-{fecha}-{hora}-{sufijo:03d}"

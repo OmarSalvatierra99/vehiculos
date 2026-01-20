@@ -587,6 +587,8 @@
     }
     const pasajerosContainer = document.getElementById(containerId);
     const pasajerosLabel = document.getElementById(labelId);
+    const pasajerosSearch = document.getElementById("pasajeros_search");
+    const pasajerosDropdown = document.getElementById("pasajeros_dropdown");
     const clampPasajeros = () => {
       const value = Number.parseInt(pasajerosInput.value, 10);
       if (!Number.isFinite(value)) {
@@ -616,6 +618,15 @@
       if (pasajerosLabel) {
         pasajerosLabel.hidden = allowed === 0;
       }
+      if (pasajerosSearch) {
+        pasajerosSearch.disabled = allowed === 0;
+        if (allowed === 0) {
+          pasajerosSearch.value = "";
+        }
+      }
+      if (pasajerosDropdown && allowed === 0) {
+        pasajerosDropdown.hidden = true;
+      }
       pasajerosSelect.required = allowed > 0;
       pasajerosSelect.disabled = allowed === 0;
       if (allowed === 0) {
@@ -633,6 +644,7 @@
     };
 
     pasajerosInput.addEventListener("input", enforcePassengerLimit);
+    pasajerosInput.addEventListener("change", enforcePassengerLimit);
     enforcePassengerLimit();
 
     formEl.addEventListener("submit", (event) => {

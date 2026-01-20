@@ -1048,6 +1048,63 @@ textarea {
   margin-top: 22px;
 }
 
+.report-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #f9f7f3;
+}
+
+.report-filter-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.report-filter-field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #7a746b;
+}
+
+.report-filter-field span {
+  font-weight: 700;
+}
+
+.date-input {
+  font-family: "Manrope", sans-serif;
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.report-filter-chip {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #7a746b;
+}
+
+.report-filter-chip strong {
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  color: var(--accent-dark);
+  text-transform: none;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -1230,6 +1287,15 @@ textarea {
   .report-doc-key {
     justify-self: center;
     width: min(220px, 100%);
+  }
+
+  .report-filter {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .report-filter-chip {
+    text-align: left;
   }
 
   .gov-header {

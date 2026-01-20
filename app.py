@@ -712,7 +712,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return redirect(url_for("login"))
         if session.get("rol") != "monitor":
             return redirect(url_for("admin"))
-        fecha = request.args.get("fecha") or date.today().isoformat()
+        fecha = _normalizar_fecha_solicitud(request.args.get("fecha"))
         movimientos = db_manager.listar_movimientos_entregados(
             session.get("usuario_id"),
             fecha,
