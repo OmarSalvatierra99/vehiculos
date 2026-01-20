@@ -97,14 +97,14 @@
         <div class="full week-picker">
           <div class="week-picker-header">
             <div>
-              <span class="summary-label">Semana actual</span>
+              <span class="summary-label">Siguientes 4 dias habiles</span>
               <strong id="week_range">-</strong>
             </div>
           </div>
           <div id="fechas_list" class="week-chips"></div>
           <div class="multi-select-meta">
             <span id="fecha_seleccion" class="multi-count">Ningun dia seleccionado</span>
-            <span class="multi-hint">Solo un dia habil de la semana actual.</span>
+            <span class="multi-hint">Seleccione solo uno de los siguientes dias habiles.</span>
           </div>
         </div>
       </fieldset>
@@ -113,13 +113,13 @@
         <legend>Personal</legend>
         <label class="full">
           Responsable del vehiculo
-          <select name="responsable_usuario_id" required>
-            {% if usuarios %}
-              {% for usuario in usuarios %}
-              <option value="{{ usuario.id }}">{{ usuario.nombre }}{% if usuario.puesto %} · {{ usuario.puesto }}{% endif %}</option>
+          <select name="responsable_usuario_id" id="responsable_usuario_id" required>
+            {% if responsables %}
+              {% for responsable in responsables %}
+              <option value="auditor:{{ responsable.id }}">{{ responsable.nombre }}</option>
               {% endfor %}
             {% else %}
-              <option value="" disabled selected>No hay usuarios registrados</option>
+              <option value="" disabled selected>No hay personal registrado</option>
             {% endif %}
           </select>
         </label>
@@ -196,7 +196,7 @@
         </label>
       </fieldset>
 
-      <fieldset class="form-section">
+      <fieldset class="form-section" id="observaciones_section" hidden>
         <label class="full">
           Observaciones (opcional)
           <textarea name="notas" rows="3" placeholder="Detalle breve de la solicitud"></textarea>
@@ -218,9 +218,11 @@
   const unidadModelo = document.getElementById("unidad_modelo");
   const unidadPropietario = document.getElementById("unidad_propietario");
   const prestamoFechasSection = document.getElementById("prestamo_fechas_section");
+  const observacionesSection = document.getElementById("observaciones_section");
   const solicitudForm = document.getElementById("solicitud_form");
   const submitBtn = document.getElementById("solicitud_submit");
   const noPasajerosInput = document.getElementById("no_pasajeros");
+  const responsableSelect = document.getElementById("responsable_usuario_id");
 
   const weekRangeEl = document.getElementById("week_range");
   const weekList = document.getElementById("fechas_list");
@@ -254,6 +256,10 @@
     const esPrestamo = tipo === "prestamo";
     if (prestamoFechasSection) {
       prestamoFechasSection.hidden = !esPrestamo;
+    }
+    if (observacionesSection) {
+      observacionesSection.hidden = !esPrestamo;
+      observacionesSection.style.display = esPrestamo ? "grid" : "none";
     }
     if (submitBtn) {
       submitBtn.textContent = esPrestamo ? "Registrar préstamo" : "Registrar solicitud";
@@ -319,20 +325,20 @@
     }
     weekList.innerHTML = "";
     const today = new Date();
-    const day = today.getDay();
-    const diffToMonday = (day + 6) % 7;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - diffToMonday);
-    const friday = new Date(monday);
-    friday.setDate(monday.getDate() + 4);
-    const start = new Date(today);
+    const disponibles = [];
+    const cursor = new Date(today);
+    cursor.setDate(cursor.getDate() + 1);
+    while (disponibles.length < 4) {
+      if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
+        disponibles.push(new Date(cursor));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
 
-    weekRangeEl.textContent = `${formatDateLabel(monday)} - ${formatDateLabel(friday)}`;
-
-    if (start > friday) {
+    if (!disponibles.length) {
       const empty = document.createElement("span");
       empty.className = "chip-empty";
-      empty.textContent = "No hay dias habiles disponibles en la semana actual.";
+      empty.textContent = "No hay dias habiles disponibles.";
       weekList.appendChild(empty);
       if (weekAll) {
         weekAll.checked = false;
@@ -341,10 +347,9 @@
       return;
     }
 
-    for (let dt = new Date(start); dt <= friday; dt.setDate(dt.getDate() + 1)) {
-      if (dt.getDay() === 0 || dt.getDay() === 6) {
-        continue;
-      }
+    weekRangeEl.textContent = `${formatDateLabel(disponibles[0])} - ${formatDateLabel(disponibles[disponibles.length - 1])}`;
+
+    disponibles.forEach((dt) => {
       const label = document.createElement("label");
       label.className = "week-chip";
       const input = document.createElement("input");
@@ -356,7 +361,7 @@
       label.appendChild(input);
       label.appendChild(text);
       weekList.appendChild(label);
-    }
+    });
   };
 
   const updateSelectedDay = () => {
@@ -394,7 +399,7 @@
 
   const MAX_PASAJEROS = 4;
 
-  function setupCombobox(searchInputId, dropdownId, selectId, chipsId, countId, passengerLimitInput) {
+  function setupCombobox(searchInputId, dropdownId, selectId, chipsId, countId, passengerLimitInput, excludeLabelFn) {
     const searchInput = document.getElementById(searchInputId);
     const dropdown = document.getElementById(dropdownId);
     const selectEl = document.getElementById(selectId);
@@ -447,6 +452,9 @@
       return allOptions.filter(opt => {
         const isSelected = opt.selected;
         const label = (opt.dataset.nombre || opt.textContent).toLowerCase().trim();
+        if (excludeLabelFn && excludeLabelFn(label)) {
+          return false;
+        }
         const matchesSearch = label.includes(normalizedTerm);
         return !isSelected && (normalizedTerm === "" || matchesSearch);
       });
@@ -580,6 +588,23 @@
     updateChips();
     updateCount();
 
+    if (excludeLabelFn) {
+      const syncExclusions = () => {
+        Array.from(selectEl.selectedOptions).forEach((opt) => {
+          const label = (opt.dataset.nombre || opt.textContent).toLowerCase().trim();
+          if (excludeLabelFn(label)) {
+            opt.selected = false;
+          }
+        });
+        updateChips();
+        updateCount();
+      };
+      syncExclusions();
+      if (responsableSelect) {
+        responsableSelect.addEventListener("change", syncExclusions);
+      }
+    }
+
     return { updateChips, updateCount, selectEl };
   }
 
@@ -590,6 +615,10 @@
     "pasajeros_chips",
     "pasajeros_count",
     noPasajerosInput,
+    (label) => {
+      const responsableLabel = responsableSelect?.selectedOptions?.[0]?.textContent?.toLowerCase().trim();
+      return Boolean(responsableLabel && label === responsableLabel);
+    },
   );
   const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");
 
@@ -669,7 +698,7 @@
       const selected = weekList.querySelector("input[type='radio']:checked");
       if (!selected) {
         event.preventDefault();
-        alert("Seleccione un dia habil de la semana actual para el prestamo.");
+        alert("Seleccione uno de los siguientes 4 dias habiles para el prestamo.");
       }
     });
   }

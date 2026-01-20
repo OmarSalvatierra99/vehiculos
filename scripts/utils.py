@@ -212,19 +212,17 @@ class DatabaseManager:
         self.catalogos_dir = Path(catalogos_dir)
         logger.info("Base de datos en uso: %s", Path(self.db_path).resolve())
         self._init_db()
+        self._migrate_schema()
         self._ensure_usuarios_columns()
         self._ensure_movimientos_columns()
         self._ensure_prestamos_columns()
         self._seed_usuarios()
-        self._seed_inventario()
         self._seed_vehiculos()
-        self._sync_inventario_vehiculos()
         self._seed_usuarios_vehiculos()
         self._seed_responsables()
         self._seed_auditores()
         self._seed_responsables_auditores()
         self._seed_resguardantes()
-        self._seed_notificaciones()
 
     def _connect(self):
         conn = sqlite3.connect(self.db_path)
@@ -262,23 +260,9 @@ class DatabaseManager:
                 activo INTEGER DEFAULT 1
             );
 
-            CREATE TABLE IF NOT EXISTS inventario_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sigla TEXT UNIQUE NOT NULL,
-                nombre TEXT NOT NULL,
-                categoria TEXT NOT NULL,
-                no_inventario TEXT,
-                descripcion TEXT,
-                stock_total INTEGER NOT NULL DEFAULT 0,
-                stock_disponible INTEGER NOT NULL DEFAULT 0,
-                activo INTEGER DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-
             CREATE TABLE IF NOT EXISTS movimientos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 folio TEXT UNIQUE NOT NULL,
-                item_id INTEGER NOT NULL,
                 usuario_id INTEGER NOT NULL,
                 ente_clave TEXT NOT NULL,
                 fecha_solicitud TEXT NOT NULL,
@@ -287,7 +271,6 @@ class DatabaseManager:
                 cantidad INTEGER NOT NULL,
                 receptor_nombre TEXT NOT NULL,
                 firma_recepcion TEXT,
-                no_inventario TEXT,
                 devuelto INTEGER DEFAULT 0,
                 observaciones TEXT,
                 resguardante_nombre TEXT,
@@ -298,13 +281,10 @@ class DatabaseManager:
                 responsable_vehiculo TEXT,
                 vehiculo_id INTEGER,
                 responsable_id INTEGER,
-                tipo_notificacion_id INTEGER,
                 no_pasajeros INTEGER,
-                auditores_nombres TEXT,
                 ruta_destino TEXT,
                 motivo_salida TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(item_id) REFERENCES inventario_items(id),
                 FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
             );
 
@@ -343,12 +323,6 @@ class DatabaseManager:
                 FOREIGN KEY(auditor_id) REFERENCES auditores(id)
             );
 
-            CREATE TABLE IF NOT EXISTS notificaciones (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT UNIQUE NOT NULL,
-                activo INTEGER DEFAULT 1
-            );
-
             CREATE TABLE IF NOT EXISTS movimientos_auditores (
                 movimiento_id INTEGER NOT NULL,
                 auditor_id INTEGER NOT NULL,
@@ -366,13 +340,6 @@ class DatabaseManager:
                 FOREIGN KEY(ente_clave) REFERENCES entes(clave)
             );
 
-            CREATE TABLE IF NOT EXISTS movimientos_pasajeros (
-                movimiento_id INTEGER NOT NULL,
-                usuario_id INTEGER NOT NULL,
-                PRIMARY KEY (movimiento_id, usuario_id),
-                FOREIGN KEY(movimiento_id) REFERENCES movimientos(id),
-                FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
-            );
 
             CREATE TABLE IF NOT EXISTS movimientos_eventos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -409,6 +376,85 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
+    def _migrate_schema(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(movimientos)")
+        existentes = {row["name"] for row in cur.fetchall()}
+        columnas_obsoletas = {"item_id", "no_inventario", "tipo_notificacion_id", "auditores_nombres"}
+        if existentes & columnas_obsoletas:
+            cur.executescript("""
+                CREATE TABLE IF NOT EXISTS movimientos_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    folio TEXT UNIQUE NOT NULL,
+                    usuario_id INTEGER NOT NULL,
+                    ente_clave TEXT NOT NULL,
+                    fecha_solicitud TEXT NOT NULL,
+                    fecha_entrega TEXT,
+                    fecha_devolucion TEXT,
+                    cantidad INTEGER NOT NULL,
+                    receptor_nombre TEXT NOT NULL,
+                    firma_recepcion TEXT,
+                    devuelto INTEGER DEFAULT 0,
+                    observaciones TEXT,
+                    resguardante_nombre TEXT,
+                    resguardante_id INTEGER,
+                    placa_unidad TEXT,
+                    marca TEXT,
+                    modelo TEXT,
+                    responsable_vehiculo TEXT,
+                    vehiculo_id INTEGER,
+                    responsable_id INTEGER,
+                    no_pasajeros INTEGER,
+                    ruta_destino TEXT,
+                    motivo_salida TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(usuario_id) REFERENCES usuarios(id),
+                    FOREIGN KEY(vehiculo_id) REFERENCES vehiculos(id)
+                );
+            """)
+            columnas_objetivo = [
+                "id",
+                "folio",
+                "usuario_id",
+                "ente_clave",
+                "fecha_solicitud",
+                "fecha_entrega",
+                "fecha_devolucion",
+                "cantidad",
+                "receptor_nombre",
+                "firma_recepcion",
+                "devuelto",
+                "observaciones",
+                "resguardante_nombre",
+                "resguardante_id",
+                "placa_unidad",
+                "marca",
+                "modelo",
+                "responsable_vehiculo",
+                "vehiculo_id",
+                "responsable_id",
+                "no_pasajeros",
+                "ruta_destino",
+                "motivo_salida",
+                "created_at",
+            ]
+            columnas_migradas = [col for col in columnas_objetivo if col in existentes]
+            columnas_txt = ", ".join(columnas_migradas)
+            cur.execute(f"""
+                INSERT INTO movimientos_new ({columnas_txt})
+                SELECT {columnas_txt}
+                FROM movimientos
+            """)
+            cur.execute("DROP TABLE movimientos")
+            cur.execute("ALTER TABLE movimientos_new RENAME TO movimientos")
+
+        cur.execute("DROP TABLE IF EXISTS inventario_items")
+        cur.execute("DROP TABLE IF EXISTS notificaciones")
+        cur.execute("DROP TABLE IF EXISTS movimientos_pasajeros")
+        conn.commit()
+        conn.close()
+
     def _ensure_usuarios_columns(self) -> None:
         conn = self._connect()
         cur = conn.cursor()
@@ -433,9 +479,7 @@ class DatabaseManager:
             ("responsable_vehiculo", "TEXT"),
             ("vehiculo_id", "INTEGER"),
             ("responsable_id", "INTEGER"),
-            ("tipo_notificacion_id", "INTEGER"),
             ("no_pasajeros", "INTEGER"),
-            ("auditores_nombres", "TEXT"),
             ("ruta_destino", "TEXT"),
             ("motivo_salida", "TEXT"),
         ]
@@ -452,6 +496,7 @@ class DatabaseManager:
         existentes = {row["name"] for row in cur.fetchall()}
         columnas = [
             ("responsable_id", "INTEGER"),
+            ("responsable_nombre", "TEXT"),
             ("no_pasajeros", "INTEGER"),
             ("pasajeros_ids", "TEXT"),
             ("ruta_destino", "TEXT"),
@@ -671,6 +716,12 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def listar_personal_resguardante(self, usuario_id: int) -> List[Dict]:
+        auditores = self.listar_auditores_por_usuario(usuario_id)
+        if not auditores:
+            auditores = self.listar_auditores()
+        return auditores
+
     def listar_resguardantes(self) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
@@ -683,69 +734,6 @@ class DatabaseManager:
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
         return data
-
-    def _seed_inventario(self) -> None:
-        conn = self._connect()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM inventario_items")
-        if cur.fetchone()[0] > 0:
-            conn.close()
-            return
-
-        items = [
-            (
-                "XVZ-357-C",
-                "Nissan Versa Sense",
-                "VEHICULO",
-                "INV-001",
-                "Marca: NISSAN · Modelo: VERSA SENSE",
-                1,
-            ),
-            (
-                "XVZ-385-C",
-                "Volkswagen Versa Sense",
-                "VEHICULO",
-                "INV-002",
-                "Marca: VOLKSWAGEN · Modelo: VERSA SENSE",
-                1,
-            ),
-            (
-                "XBL-902-B",
-                "Volkswagen Jetta",
-                "VEHICULO",
-                "INV-003",
-                "Marca: VOLKSWAGEN · Modelo: JETTA",
-                1,
-            ),
-            (
-                "XDF-551-C",
-                "Nissan Sentra",
-                "VEHICULO",
-                "INV-004",
-                "Marca: NISSAN · Modelo: SENTRA",
-                1,
-            ),
-            (
-                "XHY-112-A",
-                "Chevrolet Aveo",
-                "VEHICULO",
-                "INV-005",
-                "Marca: CHEVROLET · Modelo: AVEO",
-                1,
-            ),
-        ]
-
-        cur.executemany("""
-            INSERT INTO inventario_items (
-                sigla, nombre, categoria, no_inventario, descripcion,
-                stock_total, stock_disponible
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, [
-            (sigla, nombre, categoria, no_inventario, descripcion, stock, stock)
-            for sigla, nombre, categoria, no_inventario, descripcion, stock in items
-        ])
-        conn.commit()
-        conn.close()
 
     def _seed_vehiculos(self) -> None:
         conn = self._connect()
@@ -777,43 +765,6 @@ class DatabaseManager:
             INSERT INTO vehiculos (placa, modelo, marca, activo)
             VALUES (?, ?, ?, 1)
         """, vehiculos)
-        conn.commit()
-        conn.close()
-
-    def _sync_inventario_vehiculos(self) -> None:
-        conn = self._connect()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT placa, modelo, marca
-            FROM vehiculos
-            WHERE activo=1
-        """)
-        vehiculos = cur.fetchall()
-        if not vehiculos:
-            conn.close()
-            return
-
-        registros = []
-        for row in vehiculos:
-            placa = row["placa"]
-            modelo = row["modelo"]
-            marca = row["marca"]
-            nombre = f"{marca} {modelo}".strip()
-            descripcion = f"Marca: {marca} · Modelo: {modelo}".strip()
-            registros.append((placa, nombre, "VEHICULO", None, descripcion, 1, 1))
-
-        cur.executemany("""
-            INSERT INTO inventario_items (
-                sigla, nombre, categoria, no_inventario, descripcion,
-                stock_total, stock_disponible
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(sigla) DO UPDATE SET
-                nombre=excluded.nombre,
-                categoria=excluded.categoria,
-                descripcion=excluded.descripcion,
-                stock_total=excluded.stock_total,
-                stock_disponible=excluded.stock_disponible
-        """, registros)
         conn.commit()
         conn.close()
 
@@ -1054,44 +1005,6 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-    def _seed_notificaciones(self) -> None:
-        conn = self._connect()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM notificaciones")
-        if cur.fetchone()[0] > 0:
-            conn.close()
-            return
-
-        notificaciones = [
-            ("Notificacion oficial",),
-            ("Revision de auditoria",),
-        ]
-        cur.executemany("""
-            INSERT INTO notificaciones (nombre, activo)
-            VALUES (?, 1)
-        """, notificaciones)
-        conn.commit()
-        conn.close()
-
-    # -------------------------------------------------------
-    # Inventario
-    # -------------------------------------------------------
-    def listar_items(self, activos: bool = True) -> List[Dict]:
-        conn = self._connect()
-        cur = conn.cursor()
-        q = """
-            SELECT id, sigla, nombre, categoria, no_inventario, descripcion,
-                   stock_total, stock_disponible, activo
-            FROM inventario_items
-        """
-        if activos:
-            q += " WHERE activo=1"
-        q += " ORDER BY categoria, sigla"
-        cur.execute(q)
-        data = [dict(r) for r in cur.fetchall()]
-        conn.close()
-        return data
-
     def listar_vehiculos(self, usuario_id: Optional[int] = None) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
@@ -1121,6 +1034,32 @@ class DatabaseManager:
                 ORDER BY placa
             """)
         data = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return data
+
+    def listar_vehiculos_disponibles(self) -> List[Dict]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT v.id, v.placa, v.modelo, v.marca
+            FROM vehiculos v
+            WHERE v.activo=1
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos m
+                  WHERE m.vehiculo_id = v.id
+                    AND m.fecha_entrega IS NOT NULL
+                    AND m.devuelto=0
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM movimientos_eventos me
+                        WHERE me.movimiento_id = m.id
+                          AND me.evento = 'RECHAZADO'
+                    )
+              )
+            ORDER BY v.placa
+        """)
+        data = [dict(row) for row in cur.fetchall()]
         conn.close()
         return data
 
@@ -1182,7 +1121,8 @@ class DatabaseManager:
         solicitante_id: int,
         propietario_id: int,
         vehiculo_id: int,
-        responsable_usuario_id: int,
+        responsable_usuario_id: Optional[int],
+        responsable_tipo: str,
         no_pasajeros: int,
         pasajeros_ids: List[int],
         fechas_solicitadas: List[str],
@@ -1202,7 +1142,8 @@ class DatabaseManager:
             ("ruta", ruta_destinos),
             ("motivo", motivo_salida),
         ]
-        if int(no_pasajeros) > 0:
+        no_pasajeros_int = int(no_pasajeros)
+        if no_pasajeros_int > 0:
             requeridos.append(("nombres_pasajeros", pasajeros_ids))
         for clave, valor in requeridos:
             if valor is None or (isinstance(valor, str) and not valor.strip()):
@@ -1233,11 +1174,16 @@ class DatabaseManager:
         if len(fechas_limpias) > 1:
             return False, "Solo se permite solicitar un dia por prestamo."
         hoy = date.today()
-        lunes = hoy - timedelta(days=hoy.weekday())
-        viernes = lunes + timedelta(days=4)
+        siguientes = []
+        cursor = hoy + timedelta(days=1)
+        while len(siguientes) < 4:
+            if cursor.weekday() < 5:
+                siguientes.append(cursor)
+            cursor += timedelta(days=1)
+        fechas_validas = {fecha.isoformat() for fecha in siguientes}
         for fecha in fechas_limpias:
-            if fecha < hoy or fecha < lunes or fecha > viernes or fecha.weekday() > 4:
-                return False, "Las fechas deben estar dentro de la semana actual (lunes a viernes)."
+            if fecha.isoformat() not in fechas_validas:
+                return False, "Las fechas deben estar dentro de los siguientes 4 dias habiles."
         fechas_txt = ",".join([fecha.isoformat() for fecha in sorted(set(fechas_limpias))])
 
         conn = self._connect()
@@ -1282,17 +1228,17 @@ class DatabaseManager:
             conn.close()
             return False, f"El vehiculo esta ocupado desde {fecha_en_uso}.{dias_txt}"
 
-        cur.execute("""
-            SELECT 1
-            FROM usuarios
-            WHERE id=? AND activo=1
-        """, (responsable_usuario_id,))
-        if not cur.fetchone():
+        responsable_info = self._obtener_responsable(cur, responsable_tipo, responsable_usuario_id)
+        if not responsable_info:
             conn.close()
             return False, "Responsable no encontrado."
+        responsable_nombre, responsable_id_db = responsable_info
 
         pasajeros_ids = [int(pid) for pid in pasajeros_ids if pid]
-        if int(no_pasajeros) == 0:
+        if responsable_tipo == "auditor" and responsable_usuario_id in pasajeros_ids:
+            pasajeros_ids = [pid for pid in pasajeros_ids if pid != responsable_usuario_id]
+            no_pasajeros_int = max(no_pasajeros_int - 1, 0)
+        if no_pasajeros_int == 0:
             pasajeros_ids = []
         if pasajeros_ids:
             if len(pasajeros_ids) != len(set(pasajeros_ids)):
@@ -1308,7 +1254,7 @@ class DatabaseManager:
             if len(pasajeros) != len(set(pasajeros_ids)):
                 conn.close()
                 return False, "Pasajeros no encontrados."
-        if int(no_pasajeros) != len(pasajeros_ids):
+        if no_pasajeros_int != len(pasajeros_ids):
             conn.close()
             return False, "El numero de pasajeros no coincide."
 
@@ -1339,16 +1285,17 @@ class DatabaseManager:
         cur.execute("""
             INSERT INTO prestamos_vehiculos (
                 solicitante_id, propietario_id, vehiculo_id, fecha_solicitud, estado, notas,
-                responsable_id, no_pasajeros, pasajeros_ids, ruta_destino, motivo_salida, fechas_solicitadas
-            ) VALUES (?, ?, ?, ?, 'PENDIENTE', ?, ?, ?, ?, ?, ?, ?)
+                responsable_id, responsable_nombre, no_pasajeros, pasajeros_ids, ruta_destino, motivo_salida, fechas_solicitadas
+            ) VALUES (?, ?, ?, ?, 'PENDIENTE', ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             solicitante_id,
             propietario_id,
             vehiculo_id,
             _parse_date(fecha_solicitud) or _hoy_iso(),
             notas.strip() if notas else None,
-            int(responsable_usuario_id),
-            int(no_pasajeros),
+            responsable_id_db,
+            responsable_nombre,
+            int(no_pasajeros_int),
             ",".join([str(pid) for pid in pasajeros_ids]) if pasajeros_ids else None,
             " -> ".join(destinos),
             motivo_salida.strip(),
@@ -1384,60 +1331,55 @@ class DatabaseManager:
         conn.close()
         return data
 
-    def listar_notificaciones(self) -> List[Dict]:
-        conn = self._connect()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT id, nombre
-            FROM notificaciones
-            WHERE activo=1
-            ORDER BY nombre
-        """)
-        data = [dict(r) for r in cur.fetchall()]
-        conn.close()
-        return data
-
-    def crear_item(
-        self,
-        sigla: str,
-        nombre: str,
-        categoria: str,
-        no_inventario: str,
-        descripcion: str,
-        stock_total: int,
-    ) -> Tuple[bool, str]:
-        if not sigla or not nombre:
+    def crear_vehiculo(self, placa: str, marca: str, modelo: str) -> Tuple[bool, str]:
+        if not placa or not marca or not modelo:
             return False, "Faltan datos requeridos."
         conn = self._connect()
         cur = conn.cursor()
         try:
             cur.execute("""
-                INSERT INTO inventario_items (
-                    sigla, nombre, categoria, no_inventario, descripcion,
-                    stock_total, stock_disponible
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO vehiculos (placa, modelo, marca, activo)
+                VALUES (?, ?, ?, 1)
             """, (
-                sigla.strip().upper(),
-                nombre.strip(),
-                categoria.strip().upper(),
-                no_inventario.strip() if no_inventario else None,
-                descripcion.strip() if descripcion else None,
-                int(stock_total),
-                int(stock_total),
+                placa.strip().upper(),
+                modelo.strip(),
+                marca.strip().upper(),
             ))
             conn.commit()
         except sqlite3.IntegrityError:
             conn.close()
-            return False, "La sigla ya existe en el inventario."
+            return False, "La placa ya existe."
         conn.close()
-        return True, "Bien registrado correctamente."
+        return True, "Vehiculo registrado correctamente."
 
     # -------------------------------------------------------
     # Movimientos
     # -------------------------------------------------------
+    def _obtener_responsable(self, cur, responsable_tipo: str, responsable_id: Optional[int]) -> Optional[Tuple[str, Optional[int]]]:
+        if responsable_id is None:
+            return None
+        if responsable_tipo == "auditor":
+            cur.execute("""
+                SELECT id, nombre
+                FROM auditores
+                WHERE id=? AND activo=1
+            """, (responsable_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            return row["nombre"], None
+        cur.execute("""
+            SELECT id, nombre
+            FROM usuarios
+            WHERE id=? AND activo=1
+        """, (responsable_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return row["nombre"], row["id"]
+
     def crear_movimiento(
         self,
-        item_id: int,
         usuario_id: int,
         ente_clave: str,
         cantidad: int,
@@ -1446,12 +1388,12 @@ class DatabaseManager:
         observaciones: str,
         resguardante_id: Optional[int],
         vehiculo_id: int,
-        responsable_usuario_id: int,
+        responsable_usuario_id: Optional[int],
+        responsable_tipo: str,
         no_pasajeros: int,
         pasajeros_ids: List[int],
         ruta_destinos: List[str],
         motivo_salida: str,
-        tipo_notificacion_id: int,
         fecha_solicitud: Optional[str] = None,
     ) -> Tuple[bool, Dict]:
         requeridos = [
@@ -1459,7 +1401,6 @@ class DatabaseManager:
             ("responsable", responsable_usuario_id),
             ("pasajeros", no_pasajeros),
             ("ruta", ruta_destinos),
-            ("notificacion", tipo_notificacion_id),
             ("motivo", motivo_salida),
         ]
         if int(no_pasajeros) > 0:
@@ -1513,28 +1454,17 @@ class DatabaseManager:
             conn.close()
             return False, {"mensaje": "La unidad ya esta en uso."}
 
-        cur.execute("""
-            SELECT id, nombre
-            FROM usuarios
-            WHERE id=? AND activo=1
-        """, (responsable_usuario_id,))
-        responsable = cur.fetchone()
-        if not responsable:
+        responsable_info = self._obtener_responsable(cur, responsable_tipo, responsable_usuario_id)
+        if not responsable_info:
             conn.close()
             return False, {"mensaje": "Responsable no encontrado."}
-
-        cur.execute("""
-            SELECT id, nombre
-            FROM notificaciones
-            WHERE id=? AND activo=1
-        """, (tipo_notificacion_id,))
-        notificacion = cur.fetchone()
-        if not notificacion:
-            conn.close()
-            return False, {"mensaje": "Tipo de notificacion no encontrado."}
+        responsable_nombre, responsable_id_db = responsable_info
 
         pasajeros_ids = [int(pid) for pid in pasajeros_ids if pid]
-        if int(no_pasajeros) == 0:
+        if responsable_tipo == "auditor" and responsable_usuario_id in pasajeros_ids:
+            pasajeros_ids = [pid for pid in pasajeros_ids if pid != responsable_usuario_id]
+            no_pasajeros_int = max(no_pasajeros_int - 1, 0)
+        if no_pasajeros_int == 0:
             pasajeros_ids = []
         if pasajeros_ids:
             if len(pasajeros_ids) != len(set(pasajeros_ids)):
@@ -1551,7 +1481,7 @@ class DatabaseManager:
             if len(pasajeros) != len(set(pasajeros_ids)):
                 conn.close()
                 return False, {"mensaje": "Pasajeros no encontrados."}
-        if int(no_pasajeros) != len(pasajeros_ids):
+        if no_pasajeros_int != len(pasajeros_ids):
             conn.close()
             return False, {"mensaje": "El numero de pasajeros no coincide."}
 
@@ -1569,16 +1499,6 @@ class DatabaseManager:
         if entes_validos != set(destinos):
             conn.close()
             return False, {"mensaje": "Destinos no encontrados en catalogo de entes."}
-        cur.execute("""
-            SELECT id, no_inventario
-            FROM inventario_items
-            WHERE id=? AND activo=1
-        """, (item_id,))
-        item = cur.fetchone()
-        if not item:
-            conn.close()
-            return False, "Bien no encontrado."
-
         folio = self._generar_folio(cur)
         fecha_solicitud = _parse_date(fecha_solicitud) or _hoy_iso()
         receptor_nombre = receptor_nombre.strip() or resguardante["nombre"]
@@ -1586,33 +1506,30 @@ class DatabaseManager:
 
         cur.execute("""
             INSERT INTO movimientos (
-                folio, item_id, usuario_id, ente_clave, fecha_solicitud,
-                cantidad, receptor_nombre, firma_recepcion, no_inventario, observaciones,
+                folio, usuario_id, ente_clave, fecha_solicitud,
+                cantidad, receptor_nombre, firma_recepcion, observaciones,
                 resguardante_nombre, resguardante_id, placa_unidad, marca, modelo,
-                responsable_vehiculo, vehiculo_id, responsable_id, tipo_notificacion_id,
+                responsable_vehiculo, vehiculo_id, responsable_id,
                 no_pasajeros, ruta_destino, motivo_salida
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             folio,
-            item_id,
             usuario_id,
             ente_clave,
             fecha_solicitud,
             int(cantidad),
             receptor_nombre.strip(),
             firma_recepcion.strip() if firma_recepcion else None,
-            item["no_inventario"],
             observaciones.strip() if observaciones else None,
             resguardante["nombre"],
             resguardante["id"],
             vehiculo["placa"],
             vehiculo["marca"],
             vehiculo["modelo"],
-            responsable["nombre"],
+            responsable_nombre,
             int(vehiculo_id),
-            int(responsable_usuario_id),
-            notificacion["id"],
-            int(no_pasajeros),
+            responsable_id_db,
+            int(no_pasajeros_int),
             " -> ".join(destinos),
             motivo_salida.strip(),
         ))
@@ -1642,13 +1559,13 @@ class DatabaseManager:
         q = """
             SELECT m.id, m.folio, m.ente_clave, m.fecha_solicitud,
                    m.fecha_entrega, m.fecha_devolucion, m.cantidad,
-                   m.receptor_nombre, m.firma_recepcion, m.no_inventario,
+                   m.receptor_nombre, m.firma_recepcion,
                    m.devuelto, m.observaciones, m.resguardante_nombre,
                    COALESCE(m.placa_unidad, v.placa) AS placa_unidad,
                    COALESCE(m.marca, v.marca) AS marca,
                    COALESCE(m.modelo, v.modelo) AS modelo,
                    COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
-                   m.vehiculo_id, m.responsable_id, m.tipo_notificacion_id,
+                   m.vehiculo_id, m.responsable_id,
                    m.no_pasajeros,
                    COALESCE((
                        SELECT group_concat(nombre, ', ')
@@ -1657,6 +1574,7 @@ class DatabaseManager:
                            FROM movimientos_auditores ma
                            JOIN auditores a2 ON a2.id = ma.auditor_id
                            WHERE ma.movimiento_id = m.id
+                             AND a2.nombre != COALESCE(m.responsable_vehiculo, uresp.nombre)
                            ORDER BY a2.nombre
                        )
                    ), "") AS pasajeros_nombres,
@@ -1681,14 +1599,10 @@ class DatabaseManager:
                          AND me.evento = 'RECHAZADO'
                    ) AS rechazado,
                    e.nombre AS ente_nombre,
-                   i.sigla, i.nombre AS item_nombre, i.categoria,
-                   n.nombre AS tipo_notificacion,
                    u.nombre AS usuario_nombre
             FROM movimientos m
-            JOIN inventario_items i ON i.id = m.item_id
             JOIN usuarios u ON u.id = m.usuario_id
             LEFT JOIN entes e ON e.clave = m.ente_clave
-            LEFT JOIN notificaciones n ON n.id = m.tipo_notificacion_id
             LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
             LEFT JOIN usuarios uresp ON uresp.id = m.responsable_id
         """
@@ -1773,13 +1687,13 @@ class DatabaseManager:
         cur.execute("""
             SELECT m.id, m.folio, m.ente_clave, m.fecha_solicitud,
                    m.fecha_entrega, m.fecha_devolucion, m.cantidad,
-                   m.receptor_nombre, m.firma_recepcion, m.no_inventario,
+                   m.receptor_nombre, m.firma_recepcion,
                    m.devuelto, m.observaciones, m.resguardante_nombre,
                    COALESCE(m.placa_unidad, v.placa) AS placa_unidad,
                    COALESCE(m.marca, v.marca) AS marca,
                    COALESCE(m.modelo, v.modelo) AS modelo,
                    COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
-                   m.vehiculo_id, m.responsable_id, m.tipo_notificacion_id,
+                   m.vehiculo_id, m.responsable_id,
                    m.no_pasajeros,
                    COALESCE((
                        SELECT group_concat(nombre, ', ')
@@ -1788,6 +1702,7 @@ class DatabaseManager:
                            FROM movimientos_auditores ma
                            JOIN auditores a2 ON a2.id = ma.auditor_id
                            WHERE ma.movimiento_id = m.id
+                             AND a2.nombre != COALESCE(m.responsable_vehiculo, uresp.nombre)
                            ORDER BY a2.nombre
                        )
                    ), "") AS pasajeros_nombres,
@@ -1806,14 +1721,10 @@ class DatabaseManager:
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
                    e.nombre AS ente_nombre,
-                   i.sigla, i.nombre AS item_nombre, i.categoria,
-                   n.nombre AS tipo_notificacion,
                    u.nombre AS usuario_nombre
             FROM movimientos m
-            JOIN inventario_items i ON i.id = m.item_id
             JOIN usuarios u ON u.id = m.usuario_id
             LEFT JOIN entes e ON e.clave = m.ente_clave
-            LEFT JOIN notificaciones n ON n.id = m.tipo_notificacion_id
             LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
             LEFT JOIN usuarios uresp ON uresp.id = m.responsable_id
             JOIN movimientos_eventos me ON me.movimiento_id = m.id
@@ -1832,13 +1743,13 @@ class DatabaseManager:
         cur.execute("""
             SELECT m.id, m.folio, m.ente_clave, m.fecha_solicitud,
                    m.fecha_entrega, m.fecha_devolucion, m.cantidad,
-                   m.receptor_nombre, m.firma_recepcion, m.no_inventario,
+                   m.receptor_nombre, m.firma_recepcion,
                    m.devuelto, m.observaciones, m.resguardante_nombre,
                    COALESCE(m.placa_unidad, v.placa) AS placa_unidad,
                    COALESCE(m.marca, v.marca) AS marca,
                    COALESCE(m.modelo, v.modelo) AS modelo,
                    COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
-                   m.vehiculo_id, m.responsable_id, m.tipo_notificacion_id,
+                   m.vehiculo_id, m.responsable_id,
                    m.no_pasajeros,
                    COALESCE((
                        SELECT group_concat(nombre, ', ')
@@ -1847,6 +1758,7 @@ class DatabaseManager:
                            FROM movimientos_auditores ma
                            JOIN auditores a2 ON a2.id = ma.auditor_id
                            WHERE ma.movimiento_id = m.id
+                             AND a2.nombre != COALESCE(m.responsable_vehiculo, uresp.nombre)
                            ORDER BY a2.nombre
                        )
                    ), "") AS pasajeros_nombres,
@@ -1864,15 +1776,11 @@ class DatabaseManager:
                        )
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
-                   i.sigla, i.nombre AS item_nombre, i.categoria,
                    u.nombre AS usuario_nombre,
-                   e.nombre AS ente_nombre,
-                   n.nombre AS tipo_notificacion
+                   e.nombre AS ente_nombre
             FROM movimientos m
-            JOIN inventario_items i ON i.id = m.item_id
             JOIN usuarios u ON u.id = m.usuario_id
             LEFT JOIN entes e ON e.clave = m.ente_clave
-            LEFT JOIN notificaciones n ON n.id = m.tipo_notificacion_id
             LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
             LEFT JOIN usuarios uresp ON uresp.id = m.responsable_id
             WHERE m.id=?
@@ -1886,11 +1794,9 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT m.id, m.cantidad, m.fecha_entrega, m.devuelto,
-                   i.id AS item_id, i.stock_disponible
-            FROM movimientos m
-            JOIN inventario_items i ON i.id = m.item_id
-            WHERE m.id=?
+            SELECT id, fecha_entrega, devuelto
+            FROM movimientos
+            WHERE id=?
         """, (movimiento_id,))
         row = cur.fetchone()
         if not row:
@@ -1909,15 +1815,6 @@ class DatabaseManager:
         if row["fecha_entrega"]:
             conn.close()
             return False, "El movimiento ya fue entregado."
-        if row["stock_disponible"] < row["cantidad"]:
-            conn.close()
-            return False, "No hay existencias suficientes."
-
-        cur.execute("""
-            UPDATE inventario_items
-            SET stock_disponible = stock_disponible - ?
-            WHERE id=?
-        """, (row["cantidad"], row["item_id"]))
         cur.execute("""
             UPDATE movimientos
             SET fecha_entrega=?
@@ -1962,11 +1859,9 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT m.id, m.cantidad, m.fecha_entrega, m.devuelto,
-                   i.id AS item_id
-            FROM movimientos m
-            JOIN inventario_items i ON i.id = m.item_id
-            WHERE m.id=?
+            SELECT id, fecha_entrega, devuelto
+            FROM movimientos
+            WHERE id=?
         """, (movimiento_id,))
         row = cur.fetchone()
         if not row:
@@ -1978,12 +1873,6 @@ class DatabaseManager:
         if not row["fecha_entrega"]:
             conn.close()
             return False, "No se puede devolver sin entrega registrada."
-
-        cur.execute("""
-            UPDATE inventario_items
-            SET stock_disponible = stock_disponible + ?
-            WHERE id=?
-        """, (row["cantidad"], row["item_id"]))
         cur.execute("""
             UPDATE movimientos
             SET fecha_devolucion=?, devuelto=1

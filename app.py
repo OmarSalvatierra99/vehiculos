@@ -9,7 +9,7 @@ import sys
 from datetime import date, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 from flask import (
     Flask,
@@ -153,19 +153,24 @@ def _normalizar_rol(rol: str) -> str:
     return "user"
 
 
+def _parse_responsable_ref(raw: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    if not raw:
+        return None, None
+    raw = raw.strip()
+    if raw.startswith("auditor:"):
+        _, id_txt = raw.split(":", 1)
+        id_txt = id_txt.strip()
+        if id_txt.isdigit():
+            return "auditor", int(id_txt)
+        return None, None
+    if raw.isdigit():
+        return "usuario", int(raw)
+    return None, None
+
+
 def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id: int) -> dict:
-    items = _filtrar_vehiculos(db_manager.listar_items())
-    item_siglas = {(item.get("sigla") or "").upper() for item in items}
     vehiculos = db_manager.listar_vehiculos(usuario_id=usuario_id)
-    if item_siglas:
-        filtrados = [
-            vehiculo
-            for vehiculo in vehiculos
-            if (vehiculo.get("placa") or "").upper() in item_siglas
-        ]
-        if filtrados:
-            vehiculos = filtrados
-    usuarios = db_manager.listar_usuarios()
+    responsables = db_manager.listar_personal_resguardante(usuario_id)
     auditores = db_manager.listar_auditores_por_usuario(usuario_id)
     if not auditores:
         auditores = db_manager.listar_auditores()
@@ -179,18 +184,16 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
     return {
         "movimientos": alertas,
         "vehiculos": vehiculos,
-        "usuarios": usuarios,
+        "responsables": responsables,
         "auditores": auditores,
         "entes": entes,
         "vehiculos_prestables": vehiculos_prestables,
-        "items": items,
         "usuario_id": usuario_id,
         "today": date.today().isoformat(),
     }
 
 
 def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
-    items = _filtrar_vehiculos(db_manager.listar_items(activos=False))
     movimientos = db_manager.listar_movimientos()
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
@@ -207,7 +210,6 @@ def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
     pendientes = sum(1 for mov in alertas if not mov.data.get("fecha_entrega"))
     total_alertas = sum(1 for mov in alertas if mov.alerta)
     return {
-        "items": items,
         "movimientos": alertas,
         "vehiculos": vehiculos,
         "responsables": responsables,
@@ -222,7 +224,7 @@ def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
 
 
 def _build_monitor_context(app: Flask, db_manager: DatabaseManager) -> dict:
-    items = _filtrar_vehiculos(db_manager.listar_items())
+    items = db_manager.listar_vehiculos_disponibles()
     movimientos = db_manager.listar_movimientos()
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
@@ -319,21 +321,19 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             tipo_solicitud = "prestamo" if request.form.get("prestamo_vehiculo") else "normal"
         es_prestamo = tipo_solicitud == "prestamo"
 
-        item_id = request.form.get("item_id")
         cantidad = request.form.get("cantidad") or "1"
         vehiculo_raw = request.form.get("vehiculo_id", "")
-        responsable_usuario_id = request.form.get("responsable_usuario_id")
+        responsable_raw = request.form.get("responsable_usuario_id")
         no_pasajeros_txt = request.form.get("no_pasajeros", "").strip()
         pasajeros_ids = [pid for pid in request.form.getlist("pasajeros_ids") if pid]
         ruta_destinos = [clave for clave in request.form.getlist("ruta_destinos") if clave]
         motivo = request.form.get("motivo_salida", "").strip()
-        tipo_notificacion_id = request.form.get("tipo_notificacion_id")
         notas = request.form.get("notas")
         fecha = request.form.get("fecha_solicitud")
 
         if es_prestamo and not vehiculo_raw:
             vehiculo_raw = request.form.get("prestamo_vehiculo", "")
-            responsable_usuario_id = request.form.get("prestamo_responsable_usuario_id") or responsable_usuario_id
+            responsable_raw = request.form.get("prestamo_responsable_usuario_id") or responsable_raw
             no_pasajeros_txt = request.form.get("prestamo_no_pasajeros", "").strip() or no_pasajeros_txt
             pasajeros_ids = [pid for pid in request.form.getlist("prestamo_pasajeros_ids") if pid] or pasajeros_ids
             ruta_destinos = [clave for clave in request.form.getlist("prestamo_ruta_destinos") if clave] or ruta_destinos
@@ -370,7 +370,8 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
 
-        if not responsable_usuario_id or not responsable_usuario_id.isdigit():
+        responsable_tipo, responsable_id = _parse_responsable_ref(responsable_raw)
+        if not responsable_tipo or responsable_id is None:
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
             return render_template(
                 "dashboard.html",
@@ -464,7 +465,8 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 session.get("usuario_id"),
                 int(propietario_id),
                 int(vehiculo_id),
-                int(responsable_usuario_id),
+                responsable_id,
+                responsable_tipo,
                 int(no_pasajeros),
                 [int(pid) for pid in pasajeros_ids],
                 fechas_prestamo,
@@ -482,11 +484,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
 
-        if not tipo_notificacion_id:
-            notificaciones = db_manager.listar_notificaciones()
-            if notificaciones:
-                tipo_notificacion_id = notificaciones[0].get("id")
-
         vehiculos = db_manager.listar_vehiculos(usuario_id=session.get("usuario_id"))
         vehiculo = next(
             (v for v in vehiculos if str(v.get("id")) == str(vehiculo_id)),
@@ -502,29 +499,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
 
-        placa_upper = (vehiculo.get("placa") or "").upper()
-
-        if not item_id and placa_upper:
-            items = _filtrar_vehiculos(db_manager.listar_items())
-            item = next(
-                (i for i in items if (i.get("sigla") or "").upper() == placa_upper),
-                None,
-            )
-            if item:
-                item_id = item.get("id")
-
-        if not item_id or not tipo_notificacion_id:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                error="Faltan datos requeridos para completar la solicitud.",
-                tipo_solicitud=tipo_solicitud,
-                **context,
-            )
-
         ok, data = db_manager.crear_movimiento(
-            int(item_id),
             session["usuario_id"],
             ruta_destinos[0],
             int(cantidad),
@@ -533,12 +508,12 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             notas,
             None,
             int(vehiculo_id),
-            int(responsable_usuario_id),
+            responsable_id,
+            responsable_tipo,
             int(no_pasajeros),
             [int(pid) for pid in pasajeros_ids],
             ruta_destinos,
             motivo,
-            int(tipo_notificacion_id) if tipo_notificacion_id else None,
             fecha_solicitud=fecha,
         )
 
@@ -567,23 +542,16 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         if session.get("rol") != "admin":
             return redirect(url_for("dashboard"))
 
-        sigla = request.form.get("sigla")
-        nombre = request.form.get("nombre")
-        categoria = request.form.get("categoria", "VEHICULO")
-        no_inventario = request.form.get("no_inventario")
-        descripcion = request.form.get("descripcion")
-        stock_total = request.form.get("stock_total", 0)
+        placa = request.form.get("placa")
+        marca = request.form.get("marca")
+        modelo = request.form.get("modelo")
 
-        ok, mensaje = db_manager.crear_item(
-            sigla,
-            nombre,
-            categoria,
-            no_inventario,
-            descripcion,
-            int(stock_total),
+        ok, mensaje = db_manager.crear_vehiculo(
+            placa,
+            marca,
+            modelo,
         )
         if not ok:
-            items = _filtrar_vehiculos(db_manager.listar_items(activos=False))
             movimientos = db_manager.listar_movimientos()
             alertas = db_manager.movimientos_con_alerta(
                 movimientos,

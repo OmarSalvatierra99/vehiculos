@@ -61,7 +61,7 @@
     {% for mov in movimientos %}
     <div class="table-row">
       <span class="mono">{{ mov.data.folio }}</span>
-      <span>[{{ mov.data.sigla }}] {{ mov.data.item_nombre }}</span>
+      <span>{{ mov.data.placa_unidad }}</span>
       <span>{{ mov.data.usuario_nombre }}</span>
       <span>{{ mov.data.fecha_solicitud }}</span>
       <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>

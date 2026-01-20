@@ -50,7 +50,7 @@
       <span>{{ mov.marca }}</span>
       <span>{{ mov.modelo }}</span>
       <span>{{ mov.responsable_vehiculo }}</span>
-      <span>{{ mov.no_pasajeros }}</span>
+      <span>{{ (mov.no_pasajeros or 0) | int + 1 }}</span>
       <span>{{ mov.pasajeros_nombres or "No registrados" }}</span>
       <span>{{ mov.ruta_destino }}</span>
       <span>{{ mov.motivo_salida }}</span>

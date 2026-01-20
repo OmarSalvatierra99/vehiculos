@@ -17,15 +17,15 @@
     {% if items %}
     <div class="table table-3">
       <div class="table-row header">
-        <span>Sigla</span>
-        <span>Vehiculo</span>
+        <span>Placa</span>
+        <span>Marca</span>
         <span>Disponible</span>
       </div>
       {% for item in items %}
       <div class="table-row">
-        <span class="mono">{{ item.sigla }}</span>
-        <span>{{ item.nombre }}</span>
-        <span>{{ item.stock_disponible }}</span>
+        <span class="mono">{{ item.placa }}</span>
+        <span>{{ item.marca }} {{ item.modelo }}</span>
+        <span>Si</span>
       </div>
       {% endfor %}
     </div>
@@ -50,7 +50,7 @@
       {% for mov in movimientos %}
       <div class="table-row">
         <span class="mono">{{ mov.data.folio }}</span>
-        <span>[{{ mov.data.sigla }}] {{ mov.data.item_nombre }}</span>
+        <span>{{ mov.data.placa_unidad }}</span>
         <span>{{ mov.data.ente_nombre or mov.data.ente_clave }}</span>
         <span>{{ mov.data.fecha_solicitud }}</span>
       <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>
