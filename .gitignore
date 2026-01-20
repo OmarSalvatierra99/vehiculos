@@ -61,3 +61,6 @@ temp/
 # Logs
 logs/
 *.log
+
+# Sensitive files
+usuarios_contrasenas.csv
