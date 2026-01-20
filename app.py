@@ -168,8 +168,46 @@ def _parse_responsable_ref(raw: Optional[str]) -> Tuple[Optional[str], Optional[
     return None, None
 
 
-def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id: int) -> dict:
+def _normalizar_fecha_solicitud(fecha_txt: Optional[str]) -> str:
+    if not fecha_txt:
+        return date.today().isoformat()
+    try:
+        return datetime.strptime(fecha_txt, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return date.today().isoformat()
+
+
+def _limites_semana_laboral(base: Optional[date] = None) -> Tuple[date, date]:
+    hoy = base or date.today()
+    if hoy.weekday() == 5:
+        hoy = hoy + timedelta(days=2)
+    elif hoy.weekday() == 6:
+        hoy = hoy + timedelta(days=1)
+    fin = hoy + timedelta(days=(4 - hoy.weekday()))
+    return hoy, fin
+
+
+def _fecha_laboral_valida(fecha_txt: str) -> bool:
+    try:
+        fecha = datetime.strptime(fecha_txt, "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    if fecha.weekday() >= 5:
+        return False
+    inicio, fin = _limites_semana_laboral()
+    return inicio <= fecha <= fin
+
+
+def _build_dashboard_context(
+    app: Flask,
+    db_manager: DatabaseManager,
+    usuario_id: int,
+    fecha_solicitud: Optional[str] = None,
+) -> dict:
+    fecha_txt = _normalizar_fecha_solicitud(fecha_solicitud)
     vehiculos = db_manager.listar_vehiculos(usuario_id=usuario_id)
+    ocupados = db_manager.obtener_vehiculos_ocupados(fecha_txt)
+    vehiculos = [vehiculo for vehiculo in vehiculos if vehiculo.get("id") not in ocupados]
     responsables = db_manager.listar_personal_resguardante(usuario_id)
     auditores = db_manager.listar_auditores_por_usuario(usuario_id)
     if not auditores:
@@ -190,6 +228,7 @@ def _build_dashboard_context(app: Flask, db_manager: DatabaseManager, usuario_id
         "vehiculos_prestables": vehiculos_prestables,
         "usuario_id": usuario_id,
         "today": date.today().isoformat(),
+        "fecha_solicitud": fecha_txt,
     }
 
 
@@ -285,7 +324,8 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         if session.get("rol") in {"admin", "monitor"}:
             return redirect(url_for("admin"))
 
-        context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+        fecha = request.args.get("fecha")
+        context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
         return render_template(
             "dashboard.html",
             usuario=session.get("nombre"),
@@ -329,7 +369,9 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         ruta_destinos = [clave for clave in request.form.getlist("ruta_destinos") if clave]
         motivo = request.form.get("motivo_salida", "").strip()
         notas = request.form.get("notas")
-        fecha = request.form.get("fecha_solicitud")
+        fecha = request.form.get("fecha_solicitud", "").strip()
+        if not fecha:
+            fecha = date.today().isoformat()
 
         if es_prestamo and not vehiculo_raw:
             vehiculo_raw = request.form.get("prestamo_vehiculo", "")
@@ -352,7 +394,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             propietario_id = int(propietario_txt)
 
         if not vehiculo_id:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -361,7 +403,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
         if es_prestamo and (not propietario_id or propietario_id == session.get("usuario_id")):
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -372,7 +414,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
         responsable_tipo, responsable_id = _parse_responsable_ref(responsable_raw)
         if not responsable_tipo or responsable_id is None:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -382,7 +424,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             )
 
         if not no_pasajeros_txt.isdigit():
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -392,7 +434,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             )
         no_pasajeros = int(no_pasajeros_txt)
         if no_pasajeros < 0:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -401,7 +443,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
         if no_pasajeros > 4:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -411,7 +453,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             )
 
         if len(pasajeros_ids) != no_pasajeros:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -420,7 +462,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
         if any(not pid.isdigit() for pid in pasajeros_ids):
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -430,7 +472,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             )
 
         if not ruta_destinos:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -447,7 +489,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             "Inspección Física",
         }
         if motivo not in motivos_validos:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -456,11 +498,40 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
 
+        if not es_prestamo:
+            try:
+                datetime.strptime(fecha, "%Y-%m-%d")
+            except ValueError:
+                context = _build_dashboard_context(
+                    app,
+                    db_manager,
+                    session.get("usuario_id"),
+                    _normalizar_fecha_solicitud(fecha),
+                )
+                return render_template(
+                    "dashboard.html",
+                    usuario=session.get("nombre"),
+                    error="La fecha de solicitud no es valida.",
+                    tipo_solicitud=tipo_solicitud,
+                    **context,
+                )
+            if not _fecha_laboral_valida(fecha):
+                context = _build_dashboard_context(
+                    app,
+                    db_manager,
+                    session.get("usuario_id"),
+                    _normalizar_fecha_solicitud(fecha),
+                )
+                return render_template(
+                    "dashboard.html",
+                    usuario=session.get("nombre"),
+                    error="La fecha de salida debe estar dentro de la semana laboral.",
+                    tipo_solicitud=tipo_solicitud,
+                    **context,
+                )
+
         if es_prestamo:
-            fecha_prestamo = request.form.get("fecha_prestamo", "").strip()
-            fechas_prestamo = [fecha_prestamo] if fecha_prestamo else []
-            if not fechas_prestamo:
-                fechas_prestamo = [fecha for fecha in request.form.getlist("fechas_prestamo") if fecha]
+            fechas_prestamo = [fecha] if fecha else []
             ok, mensaje = db_manager.solicitar_prestamo(
                 session.get("usuario_id"),
                 int(propietario_id),
@@ -474,7 +545,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 motivo,
                 notas,
             )
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -490,7 +561,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             None,
         )
         if not vehiculo:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -518,7 +589,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         )
 
         if not ok:
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"))
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",
                 usuario=session.get("nombre"),
@@ -651,6 +722,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             "reporte_diario.html",
             movimientos=movimientos,
             fecha_larga=fecha_larga,
+            fecha=fecha,
             can_print=True,
         )
 

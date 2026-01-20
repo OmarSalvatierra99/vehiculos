@@ -1,0 +1,15 @@
+[Unit]
+Description=Portfolio Vehiculos Flask Service
+After=network.target
+
+[Service]
+Type=simple
+User=gabo
+WorkingDirectory=/home/gabo/portfolio/projects/10-vehiculos
+EnvironmentFile=-/home/gabo/portfolio/projects/10-vehiculos/.env
+ExecStart=/home/gabo/portfolio/projects/10-vehiculos/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5010 "app:create_app()"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

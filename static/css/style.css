@@ -1172,6 +1172,7 @@ textarea {
     border-collapse: collapse;
     font-size: 9pt;
     table-layout: fixed;
+    margin-bottom: 12px;
   }
 
   .report .table-row {
@@ -1184,10 +1185,15 @@ textarea {
 
   .report .table-row span {
     display: table-cell;
-    padding: 6px 8px;
+    padding: 8px 10px;
     border: 1px solid #000000;
     vertical-align: top;
     word-break: break-word;
+    line-height: 1.35;
+  }
+
+  .report .center-print {
+    text-align: center;
   }
 
   .report .table-row.header span {

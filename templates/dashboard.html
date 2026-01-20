@@ -92,21 +92,13 @@
         </label>
       </fieldset>
 
-      <fieldset class="form-section" id="prestamo_fechas_section" hidden>
-        <legend>Fecha de prestamo</legend>
-        <div class="full week-picker">
-          <div class="week-picker-header">
-            <div>
-              <span class="summary-label">Siguientes 4 dias habiles</span>
-              <strong id="week_range">-</strong>
-            </div>
-          </div>
-          <div id="fechas_list" class="week-chips"></div>
-          <div class="multi-select-meta">
-            <span id="fecha_seleccion" class="multi-count">Ningun dia seleccionado</span>
-            <span class="multi-hint">Seleccione solo uno de los siguientes dias habiles.</span>
-          </div>
-        </div>
+      <fieldset class="form-section" id="solicitud_fecha_section">
+        <legend>Fecha de solicitud</legend>
+        <label class="full">
+          Fecha de salida
+          <input type="date" name="fecha_solicitud" id="fecha_solicitud" value="{{ fecha_solicitud }}" min="{{ today }}" required>
+        </label>
+        <p class="hint">La unidad se aparta solo para el dia seleccionado.</p>
       </fieldset>
 
       <fieldset class="form-section">
@@ -127,7 +119,7 @@
           No. de pasajeros
           <input type="number" name="no_pasajeros" id="no_pasajeros" inputmode="numeric" min="0" max="4" step="1" value="4" required>
         </label>
-        <label class="full">
+        <label class="full" id="pasajeros_label">
           Nombre de los auditores
           <div class="combobox-container" id="pasajeros_container">
             <div class="combobox-search">
@@ -217,16 +209,13 @@
   const unidadPlaca = document.getElementById("unidad_placa");
   const unidadModelo = document.getElementById("unidad_modelo");
   const unidadPropietario = document.getElementById("unidad_propietario");
-  const prestamoFechasSection = document.getElementById("prestamo_fechas_section");
+  const solicitudFechaSection = document.getElementById("solicitud_fecha_section");
+  const fechaSolicitudInput = document.getElementById("fecha_solicitud");
   const observacionesSection = document.getElementById("observaciones_section");
   const solicitudForm = document.getElementById("solicitud_form");
   const submitBtn = document.getElementById("solicitud_submit");
   const noPasajerosInput = document.getElementById("no_pasajeros");
   const responsableSelect = document.getElementById("responsable_usuario_id");
-
-  const weekRangeEl = document.getElementById("week_range");
-  const weekList = document.getElementById("fechas_list");
-  const weekSelected = document.getElementById("fecha_seleccion");
 
   const updateUnidadResumen = () => {
     if (!vehiculoSelect) {
@@ -254,8 +243,12 @@
   const applyTipoFiltro = () => {
     const tipo = (tipoSelect?.value || "normal").toLowerCase();
     const esPrestamo = tipo === "prestamo";
-    if (prestamoFechasSection) {
-      prestamoFechasSection.hidden = !esPrestamo;
+    if (solicitudFechaSection) {
+      solicitudFechaSection.hidden = esPrestamo;
+      solicitudFechaSection.style.display = esPrestamo ? "none" : "grid";
+    }
+    if (fechaSolicitudInput) {
+      fechaSolicitudInput.required = !esPrestamo;
     }
     if (observacionesSection) {
       observacionesSection.hidden = !esPrestamo;
@@ -285,16 +278,6 @@
         }
       }
     }
-    if (!esPrestamo && weekList) {
-      weekList.querySelectorAll("input[type='radio']").forEach((input) => {
-        input.checked = false;
-        const label = input.closest(".week-chip");
-        if (label) {
-          label.classList.remove("is-selected");
-        }
-      });
-      updateSelectedDay();
-    }
     updateUnidadResumen();
   };
 
@@ -305,12 +288,25 @@
   if (tipoSelect) {
     tipoSelect.addEventListener("change", applyTipoFiltro);
   }
-
-  const formatDateLabel = (dt) => {
-    const dias = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
-    const meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-    return `${dias[dt.getDay()]} ${dt.getDate()} ${meses[dt.getMonth()]}`;
-  };
+  if (fechaSolicitudInput) {
+    fechaSolicitudInput.addEventListener("change", () => {
+      const value = fechaSolicitudInput.value;
+      if (!value) {
+        return;
+      }
+      const state = clampToWorkweek(value);
+      fechaSolicitudInput.min = state.minIso;
+      fechaSolicitudInput.max = state.maxIso;
+      if (!state.ok) {
+        fechaSolicitudInput.value = state.value;
+        alert("Seleccione una fecha dentro de la semana laboral (lunes a viernes).");
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("fecha", state.value);
+      window.location.href = url.toString();
+    });
+  }
 
   const isoDate = (dt) => {
     const year = dt.getFullYear();
@@ -319,82 +315,45 @@
     return `${year}-${month}-${day}`;
   };
 
-  const buildWeekPicker = () => {
-    if (!weekList || !weekRangeEl) {
-      return;
-    }
-    weekList.innerHTML = "";
+  const clampToWorkweek = (dateValue) => {
     const today = new Date();
-    const disponibles = [];
-    const cursor = new Date(today);
-    cursor.setDate(cursor.getDate() + 1);
-    while (disponibles.length < 4) {
-      if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
-        disponibles.push(new Date(cursor));
-      }
-      cursor.setDate(cursor.getDate() + 1);
+    let minDate = new Date(today);
+    if (minDate.getDay() === 6) {
+      minDate.setDate(minDate.getDate() + 2);
+    } else if (minDate.getDay() === 0) {
+      minDate.setDate(minDate.getDate() + 1);
     }
-
-    if (!disponibles.length) {
-      const empty = document.createElement("span");
-      empty.className = "chip-empty";
-      empty.textContent = "No hay dias habiles disponibles.";
-      weekList.appendChild(empty);
-      if (weekAll) {
-        weekAll.checked = false;
-        weekAll.disabled = true;
-      }
-      return;
+    const minDay = minDate.getDay();
+    const maxDate = new Date(minDate);
+    if (minDay <= 5) {
+      maxDate.setDate(maxDate.getDate() + (5 - minDay));
     }
-
-    weekRangeEl.textContent = `${formatDateLabel(disponibles[0])} - ${formatDateLabel(disponibles[disponibles.length - 1])}`;
-
-    disponibles.forEach((dt) => {
-      const label = document.createElement("label");
-      label.className = "week-chip";
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "fecha_prestamo";
-      input.value = isoDate(dt);
-      const text = document.createElement("span");
-      text.textContent = formatDateLabel(dt);
-      label.appendChild(input);
-      label.appendChild(text);
-      weekList.appendChild(label);
-    });
+    const minIso = isoDate(minDate);
+    const maxIso = isoDate(maxDate);
+    if (!dateValue) {
+      return { ok: false, minIso, maxIso, value: minIso };
+    }
+    const picked = new Date(`${dateValue}T00:00:00`);
+    const isWeekend = picked.getDay() === 0 || picked.getDay() === 6;
+    if (Number.isNaN(picked.getTime()) || isWeekend || dateValue < minIso || dateValue > maxIso) {
+      return { ok: false, minIso, maxIso, value: minIso };
+    }
+    return { ok: true, minIso, maxIso, value: dateValue };
   };
 
-  const updateSelectedDay = () => {
-    if (!weekList || !weekSelected) {
+  const setupSolicitudFecha = () => {
+    if (!fechaSolicitudInput) {
       return;
     }
-    const selected = weekList.querySelector("input[type='radio']:checked");
-    if (!selected) {
-      weekSelected.textContent = "Ningun dia seleccionado";
-      return;
+    const state = clampToWorkweek(fechaSolicitudInput.value);
+    fechaSolicitudInput.min = state.minIso;
+    fechaSolicitudInput.max = state.maxIso;
+    if (fechaSolicitudInput.value !== state.value) {
+      fechaSolicitudInput.value = state.value;
     }
-    const label = selected.closest(".week-chip")?.querySelector("span")?.textContent;
-    weekSelected.textContent = label ? `Dia seleccionado: ${label}` : "Dia seleccionado";
   };
 
-  if (weekList) {
-    weekList.addEventListener("change", (event) => {
-      const target = event.target;
-      if (target && target.matches("input[type='radio']")) {
-        weekList.querySelectorAll(".week-chip").forEach((chip) => {
-          chip.classList.remove("is-selected");
-        });
-        const label = target.closest(".week-chip");
-        if (label) {
-          label.classList.add("is-selected");
-        }
-        updateSelectedDay();
-      }
-    });
-  }
-
-  buildWeekPicker();
-  updateSelectedDay();
+  setupSolicitudFecha();
   applyTipoFiltro();
 
   const MAX_PASAJEROS = 4;
@@ -622,11 +581,12 @@
   );
   const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");
 
-  const setupPassengerValidation = (formEl, pasajerosInput, pasajerosSelectId, pasajerosCombobox, containerId) => {
+  const setupPassengerValidation = (formEl, pasajerosInput, pasajerosSelectId, pasajerosCombobox, containerId, labelId) => {
     if (!formEl || !pasajerosInput) {
       return;
     }
     const pasajerosContainer = document.getElementById(containerId);
+    const pasajerosLabel = document.getElementById(labelId);
     const clampPasajeros = () => {
       const value = Number.parseInt(pasajerosInput.value, 10);
       if (!Number.isFinite(value)) {
@@ -652,6 +612,9 @@
       }
       if (pasajerosContainer) {
         pasajerosContainer.hidden = allowed === 0;
+      }
+      if (pasajerosLabel) {
+        pasajerosLabel.hidden = allowed === 0;
       }
       pasajerosSelect.required = allowed > 0;
       pasajerosSelect.disabled = allowed === 0;
@@ -687,18 +650,26 @@
     });
   };
 
-  setupPassengerValidation(solicitudForm, noPasajerosInput, "pasajeros_ids", pasajerosCombobox, "pasajeros_container");
+  setupPassengerValidation(
+    solicitudForm,
+    noPasajerosInput,
+    "pasajeros_ids",
+    pasajerosCombobox,
+    "pasajeros_container",
+    "pasajeros_label",
+  );
 
-  if (solicitudForm && weekList) {
+  if (solicitudForm) {
     solicitudForm.addEventListener("submit", (event) => {
-      const tipo = (tipoSelect?.value || "normal").toLowerCase();
-      if (tipo !== "prestamo") {
-        return;
-      }
-      const selected = weekList.querySelector("input[type='radio']:checked");
-      if (!selected) {
-        event.preventDefault();
-        alert("Seleccione uno de los siguientes 4 dias habiles para el prestamo.");
+      if (fechaSolicitudInput) {
+        const state = clampToWorkweek(fechaSolicitudInput.value);
+        fechaSolicitudInput.min = state.minIso;
+        fechaSolicitudInput.max = state.maxIso;
+        if (!state.ok) {
+          event.preventDefault();
+          fechaSolicitudInput.value = state.value;
+          alert("La fecha de salida debe estar dentro de la semana laboral (lunes a viernes).");
+        }
       }
     });
   }

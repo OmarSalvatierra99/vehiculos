@@ -1037,7 +1037,8 @@ class DatabaseManager:
         conn.close()
         return data
 
-    def listar_vehiculos_disponibles(self) -> List[Dict]:
+    def listar_vehiculos_disponibles(self, fecha_iso: Optional[str] = None) -> List[Dict]:
+        fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
@@ -1048,8 +1049,7 @@ class DatabaseManager:
                   SELECT 1
                   FROM movimientos m
                   WHERE m.vehiculo_id = v.id
-                    AND m.fecha_entrega IS NOT NULL
-                    AND m.devuelto=0
+                    AND m.fecha_solicitud = ?
                     AND NOT EXISTS (
                         SELECT 1
                         FROM movimientos_eventos me
@@ -1058,7 +1058,7 @@ class DatabaseManager:
                     )
               )
             ORDER BY v.placa
-        """)
+        """, (fecha_txt,))
         data = [dict(row) for row in cur.fetchall()]
         conn.close()
         return data
@@ -1068,28 +1068,21 @@ class DatabaseManager:
         cur = conn.cursor()
         cur.execute("""
             SELECT v.id, v.placa, v.modelo, v.marca,
-                   u.id AS propietario_id, u.nombre AS propietario_nombre,
-                   mu.fecha_entrega AS fecha_en_uso
+                   u.id AS propietario_id, u.nombre AS propietario_nombre
             FROM vehiculos v
             JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
             JOIN usuarios u ON u.id = uv.usuario_id
-            LEFT JOIN (
-                SELECT vehiculo_id, MAX(fecha_entrega) AS fecha_entrega
-                FROM movimientos
-                WHERE fecha_entrega IS NOT NULL AND devuelto=0
-                GROUP BY vehiculo_id
-            ) mu ON mu.vehiculo_id = v.id
             WHERE v.activo=1
               AND u.activo=1
               AND uv.usuario_id != ?
-              AND mu.fecha_entrega IS NULL
             ORDER BY u.nombre, v.placa
         """, (solicitante_id,))
         data = [dict(row) for row in cur.fetchall()]
         conn.close()
         return data
 
-    def contar_vehiculos_disponibles(self) -> Tuple[int, int]:
+    def contar_vehiculos_disponibles(self, fecha_iso: Optional[str] = None) -> Tuple[int, int]:
+        fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
@@ -1102,19 +1095,38 @@ class DatabaseManager:
             SELECT COUNT(DISTINCT m.vehiculo_id) AS en_uso
             FROM movimientos m
             WHERE m.vehiculo_id IS NOT NULL
-              AND m.fecha_entrega IS NOT NULL
-              AND m.devuelto=0
+              AND m.fecha_solicitud = ?
               AND NOT EXISTS (
                   SELECT 1
                   FROM movimientos_eventos me
                   WHERE me.movimiento_id = m.id
                     AND me.evento = 'RECHAZADO'
               )
-        """)
+        """, (fecha_txt,))
         en_uso = cur.fetchone()["en_uso"]
         conn.close()
         disponibles = max(total - en_uso, 0)
         return total, disponibles
+
+    def obtener_vehiculos_ocupados(self, fecha_iso: Optional[str] = None) -> set:
+        fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT m.vehiculo_id
+            FROM movimientos m
+            WHERE m.vehiculo_id IS NOT NULL
+              AND m.fecha_solicitud = ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
+        """, (fecha_txt,))
+        ocupados = {row["vehiculo_id"] for row in cur.fetchall() if row["vehiculo_id"]}
+        conn.close()
+        return ocupados
 
     def solicitar_prestamo(
         self,
@@ -1206,27 +1218,39 @@ class DatabaseManager:
             conn.close()
             return False, "El vehiculo ya esta asignado al solicitante."
 
+        fecha_reserva = fechas_limpias[0].isoformat()
         cur.execute("""
-            SELECT fecha_entrega
-            FROM movimientos
-            WHERE vehiculo_id=?
-              AND fecha_entrega IS NOT NULL
-              AND devuelto=0
-            ORDER BY fecha_entrega DESC
+            SELECT 1
+            FROM movimientos m
+            WHERE m.vehiculo_id=?
+              AND m.fecha_solicitud=?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
             LIMIT 1
-        """, (vehiculo_id,))
-        ocupacion = cur.fetchone()
-        if ocupacion:
-            fecha_en_uso = ocupacion["fecha_entrega"]
-            dias_txt = ""
-            try:
-                fecha_dt = datetime.strptime(fecha_en_uso, "%Y-%m-%d").date()
-                dias = max((date.today() - fecha_dt).days, 0)
-                dias_txt = f" ({dias} dias)"
-            except ValueError:
-                dias_txt = ""
+        """, (vehiculo_id, fecha_reserva))
+        if cur.fetchone():
             conn.close()
-            return False, f"El vehiculo esta ocupado desde {fecha_en_uso}.{dias_txt}"
+            return False, "El vehiculo ya esta asignado para esa fecha."
+
+        cur.execute("""
+            SELECT fechas_solicitadas
+            FROM prestamos_vehiculos
+            WHERE vehiculo_id=? AND estado='PENDIENTE'
+        """, (vehiculo_id,))
+        for row in cur.fetchall():
+            fechas_txt = row["fechas_solicitadas"] or ""
+            fechas_reserva = {
+                fecha.strip()
+                for fecha in fechas_txt.split(",")
+                if fecha.strip()
+            }
+            if fecha_reserva in fechas_reserva:
+                conn.close()
+                return False, "El vehiculo ya tiene un prestamo pendiente para esa fecha."
 
         responsable_info = self._obtener_responsable(cur, responsable_tipo, responsable_usuario_id)
         if not responsable_info:
@@ -1403,7 +1427,8 @@ class DatabaseManager:
             ("ruta", ruta_destinos),
             ("motivo", motivo_salida),
         ]
-        if int(no_pasajeros) > 0:
+        no_pasajeros_int = int(no_pasajeros)
+        if no_pasajeros_int > 0:
             requeridos.append(("nombres_pasajeros", pasajeros_ids))
         for clave, valor in requeridos:
             if valor is None or (isinstance(valor, str) and not valor.strip()):
@@ -1442,17 +1467,23 @@ class DatabaseManager:
             conn.close()
             return False, {"mensaje": "Vehiculo no encontrado."}
 
+        fecha_solicitud = _parse_date(fecha_solicitud) or _hoy_iso()
         cur.execute("""
             SELECT 1
-            FROM movimientos
-            WHERE vehiculo_id=?
-              AND fecha_entrega IS NOT NULL
-              AND devuelto=0
+            FROM movimientos m
+            WHERE m.vehiculo_id=?
+              AND m.fecha_solicitud=?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
             LIMIT 1
-        """, (vehiculo_id,))
+        """, (vehiculo_id, fecha_solicitud))
         if cur.fetchone():
             conn.close()
-            return False, {"mensaje": "La unidad ya esta en uso."}
+            return False, {"mensaje": "La unidad ya esta asignada para esa fecha."}
 
         responsable_info = self._obtener_responsable(cur, responsable_tipo, responsable_usuario_id)
         if not responsable_info:
@@ -1500,7 +1531,6 @@ class DatabaseManager:
             conn.close()
             return False, {"mensaje": "Destinos no encontrados en catalogo de entes."}
         folio = self._generar_folio(cur)
-        fecha_solicitud = _parse_date(fecha_solicitud) or _hoy_iso()
         receptor_nombre = receptor_nombre.strip() or resguardante["nombre"]
         ente_clave = ente_clave or destinos[0]
 
@@ -1794,7 +1824,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, fecha_entrega, devuelto
+            SELECT id, fecha_entrega, devuelto, vehiculo_id
             FROM movimientos
             WHERE id=?
         """, (movimiento_id,))
@@ -1815,12 +1845,55 @@ class DatabaseManager:
         if row["fecha_entrega"]:
             conn.close()
             return False, "El movimiento ya fue entregado."
+        vehiculo_id = row["vehiculo_id"]
+        if vehiculo_id:
+            cur.execute("""
+                SELECT 1
+                FROM movimientos m
+                WHERE m.vehiculo_id=?
+                  AND m.id != ?
+                  AND m.fecha_entrega=?
+                  AND m.devuelto=0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM movimientos_eventos me
+                      WHERE me.movimiento_id = m.id
+                        AND me.evento = 'RECHAZADO'
+                  )
+                LIMIT 1
+            """, (vehiculo_id, movimiento_id, _hoy_iso()))
+            if cur.fetchone():
+                conn.close()
+                return False, "Ya existe una entrega validada para esta unidad hoy."
         cur.execute("""
             UPDATE movimientos
             SET fecha_entrega=?
             WHERE id=?
         """, (_hoy_iso(), movimiento_id))
         self._registrar_evento(cur, movimiento_id, usuario_id, "ENTREGADO", "")
+        if vehiculo_id:
+            cur.execute("""
+                SELECT m.id
+                FROM movimientos m
+                WHERE m.vehiculo_id=?
+                  AND m.id != ?
+                  AND m.fecha_entrega IS NULL
+                  AND m.devuelto=0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM movimientos_eventos me
+                      WHERE me.movimiento_id = m.id
+                        AND me.evento = 'RECHAZADO'
+                  )
+            """, (vehiculo_id, movimiento_id))
+            for pendiente in cur.fetchall():
+                self._registrar_evento(
+                    cur,
+                    pendiente["id"],
+                    usuario_id,
+                    "RECHAZADO",
+                    "Auto rechazado: unidad ya validada.",
+                )
         conn.commit()
         conn.close()
         return True, "Entrega registrada."

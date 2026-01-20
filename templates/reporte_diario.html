@@ -13,7 +13,7 @@
       <div class="report-doc-tags">
         <span class="report-doc-tag">Dirección</span>
         <span class="report-doc-tag">Proceso</span>
-        <span class="report-doc-tag">Subporoceso</span>
+        <span class="report-doc-tag">Subproceso</span>
       </div>
     </div>
     <div class="report-doc-key">
@@ -22,36 +22,51 @@
     </div>
   </div>
   <div class="report-header">
-    <h2>REPORTE GENERAL DEL DIA</h2>
+    <h2>SOLICITUD DE UNIDADES</h2>
     <p class="report-subtitle">DIRECCION DE AUDITORIA A ENTES ESTATALES</p>
-    <p class="report-subtitle">VEHICULOS REQUERIDOS PARA SALIDA DEL DIA {{ fecha_larga }}</p>
+    <p class="report-subtitle">VEHÍCULOS REQUERIDOS PARA SALIDA DEL DIA {{ fecha_larga }}</p>
     <p class="report-warning">ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MAS DE 5 OCUPANTES</p>
+  </div>
+
+  <div class="actions report-actions">
+    <form method="get" action="{{ url_for('reporte_diario') }}">
+      <label>
+        Fecha del reporte
+        <input type="date" name="fecha" value="{{ fecha }}" required>
+      </label>
+      <button class="btn ghost" type="submit">Ver reporte</button>
+    </form>
   </div>
 
   {% if movimientos %}
   <div class="table table-10">
     <div class="table-row header">
-      <span>No.</span>
+      <span class="center-print">No.</span>
       <span>Nombre del resguardante</span>
-      <span>Placa de la unidad</span>
-      <span>Marca</span>
-      <span>Modelo</span>
+      <span class="center-print">Placa de la unidad</span>
+      <span class="center-print">Marca</span>
+      <span class="center-print">Modelo</span>
       <span>Responsable del vehiculo</span>
-      <span>No. de pasajeros</span>
+      <span class="center-print">No. de pasajeros</span>
       <span>Nombre de los auditores</span>
       <span>Ruta-destino</span>
       <span>Motivo de salida</span>
     </div>
     {% for mov in movimientos %}
+    {% set no_pasajeros = (mov.no_pasajeros or 0) | int %}
     <div class="table-row">
-      <span class="mono">{{ loop.index }}</span>
+      <span class="mono center-print">{{ loop.index }}</span>
       <span>{{ mov.resguardante_nombre or "No registrado" }}</span>
-      <span>{{ mov.placa_unidad }}</span>
-      <span>{{ mov.marca }}</span>
-      <span>{{ mov.modelo }}</span>
+      <span class="center-print">{{ mov.placa_unidad }}</span>
+      <span class="center-print">{{ mov.marca }}</span>
+      <span class="center-print">{{ mov.modelo }}</span>
       <span>{{ mov.responsable_vehiculo }}</span>
-      <span>{{ (mov.no_pasajeros or 0) | int + 1 }}</span>
+      <span class="center-print">{{ no_pasajeros + 1 }}</span>
+      {% if no_pasajeros > 0 %}
       <span>{{ mov.pasajeros_nombres or "No registrados" }}</span>
+      {% else %}
+      <span></span>
+      {% endif %}
       <span>{{ mov.ruta_destino }}</span>
       <span>{{ mov.motivo_salida }}</span>
     </div>
@@ -62,8 +77,8 @@
   {% endif %}
 
   <div class="signature">
-    <span class="report-label">Autorizacion del director</span>
     <div class="signature-line"></div>
+    <span class="report-label">Autorización del Director</span>
   </div>
 
   {% if can_print %}
