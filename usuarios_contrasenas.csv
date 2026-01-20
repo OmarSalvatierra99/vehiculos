@@ -1,0 +1,7 @@
+id,usuario,nombre,rol,activo,contrasena
+1,juan,C.P. Juan Jose Blanco Sanchez,user,1,JjBlanco#24
+2,cristina,C.P. Cristina Rosas de la Cruz,user,1,CrisRosas@24
+3,miguel,C.P. Miguel Angel Roldan Pena,user,1,MiguelRp!24
+4,angel,C.P. Angel Flores Licona,user,1,AngelFL#24
+10,omar,Ing. Omar Alfredo Castro Orozco,user,1,OmarAC$24
+13,monitor,Monitor Vehicular,monitor,1,MonitorVeh!24
