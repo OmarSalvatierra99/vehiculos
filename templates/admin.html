@@ -53,7 +53,7 @@
       <span>Folio</span>
       <span>Unidad</span>
       <span>Solicitante</span>
-      <span>Solicitud</span>
+      <span>{% if rol == "monitor" %}Control{% else %}Solicitud{% endif %}</span>
       <span>Entrega</span>
       <span>Estatus</span>
       <span>{% if rol == "monitor" %}Validar{% else %}Reporte{% endif %}</span>
@@ -82,20 +82,39 @@
       </span>
       <span class="actions-inline">
         {% if rol == "monitor" %}
-          {% if mov.data.rechazado %}
-            <span class="badge danger">Rechazado</span>
-          {% elif mov.data.fecha_entrega %}
-            <span class="badge success">Validado</span>
+          {% if mov.data.tipo == "prestamo" %}
+            {% if mov.data.rechazado %}
+              <span class="badge danger">Rechazado</span>
+            {% elif mov.data.fecha_entrega %}
+              <span class="badge success">Validado</span>
+            {% else %}
+              <form method="post" action="{{ url_for('prestamos_validar', prestamo_id=mov.data.id) }}">
+                <button class="btn ghost btn-small" type="submit">Validar</button>
+              </form>
+              <form method="post" action="{{ url_for('prestamos_rechazar', prestamo_id=mov.data.id) }}">
+                <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
+              </form>
+            {% endif %}
           {% else %}
-            <form method="post" action="{{ url_for('movimientos_entregar', mov_id=mov.data.id) }}">
-              <button class="btn ghost btn-small" type="submit">Validar</button>
-            </form>
-            <form method="post" action="{{ url_for('movimientos_rechazar', mov_id=mov.data.id) }}">
-              <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
-            </form>
+            {% if mov.data.rechazado %}
+              <span class="badge danger">Rechazado</span>
+            {% elif mov.data.fecha_entrega %}
+              <span class="badge success">Validado</span>
+            {% else %}
+              <form method="post" action="{{ url_for('movimientos_entregar', mov_id=mov.data.id) }}">
+                <button class="btn ghost btn-small" type="submit">Validar</button>
+              </form>
+              <form method="post" action="{{ url_for('movimientos_rechazar', mov_id=mov.data.id) }}">
+                <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
+              </form>
+            {% endif %}
           {% endif %}
         {% else %}
-          <a class="btn ghost" href="{{ url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+          {% if mov.data.tipo == "prestamo" %}
+            <span class="badge">Prestamo</span>
+          {% else %}
+            <a class="btn ghost" href="{{ url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+          {% endif %}
         {% endif %}
       </span>
     </div>

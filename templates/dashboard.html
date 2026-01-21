@@ -244,11 +244,11 @@
     const tipo = (tipoSelect?.value || "normal").toLowerCase();
     const esPrestamo = tipo === "prestamo";
     if (solicitudFechaSection) {
-      solicitudFechaSection.hidden = esPrestamo;
-      solicitudFechaSection.style.display = esPrestamo ? "none" : "grid";
+      solicitudFechaSection.hidden = false;
+      solicitudFechaSection.style.display = "grid";
     }
     if (fechaSolicitudInput) {
-      fechaSolicitudInput.required = !esPrestamo;
+      fechaSolicitudInput.required = true;
     }
     if (observacionesSection) {
       observacionesSection.hidden = !esPrestamo;

@@ -1059,8 +1059,15 @@ class DatabaseManager:
                           AND me.evento = 'RECHAZADO'
                     )
               )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM prestamos_vehiculos p
+                  WHERE p.vehiculo_id = v.id
+                    AND p.estado = 'VALIDADO'
+                    AND (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+              )
             ORDER BY v.placa
-        """, (fecha_txt,))
+        """, (fecha_txt, fecha_txt))
         data = [dict(row) for row in cur.fetchall()]
         conn.close()
         return data
@@ -1094,17 +1101,26 @@ class DatabaseManager:
         """)
         total = cur.fetchone()["total"]
         cur.execute("""
-            SELECT COUNT(DISTINCT m.vehiculo_id) AS en_uso
-            FROM movimientos m
-            WHERE m.vehiculo_id IS NOT NULL
-              AND m.fecha_solicitud = ?
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM movimientos_eventos me
-                  WHERE me.movimiento_id = m.id
-                    AND me.evento = 'RECHAZADO'
-              )
-        """, (fecha_txt,))
+            SELECT COUNT(DISTINCT vehiculo_id) AS en_uso
+            FROM (
+                SELECT m.vehiculo_id AS vehiculo_id
+                FROM movimientos m
+                WHERE m.vehiculo_id IS NOT NULL
+                  AND m.fecha_solicitud = ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM movimientos_eventos me
+                      WHERE me.movimiento_id = m.id
+                        AND me.evento = 'RECHAZADO'
+                  )
+                UNION
+                SELECT p.vehiculo_id AS vehiculo_id
+                FROM prestamos_vehiculos p
+                WHERE p.vehiculo_id IS NOT NULL
+                  AND p.estado = 'VALIDADO'
+                  AND (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+            )
+        """, (fecha_txt, fecha_txt))
         en_uso = cur.fetchone()["en_uso"]
         conn.close()
         disponibles = max(total - en_uso, 0)
@@ -1115,17 +1131,26 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT DISTINCT m.vehiculo_id
-            FROM movimientos m
-            WHERE m.vehiculo_id IS NOT NULL
-              AND m.fecha_solicitud = ?
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM movimientos_eventos me
-                  WHERE me.movimiento_id = m.id
-                    AND me.evento = 'RECHAZADO'
-              )
-        """, (fecha_txt,))
+            SELECT DISTINCT vehiculo_id
+            FROM (
+                SELECT m.vehiculo_id AS vehiculo_id
+                FROM movimientos m
+                WHERE m.vehiculo_id IS NOT NULL
+                  AND m.fecha_solicitud = ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM movimientos_eventos me
+                      WHERE me.movimiento_id = m.id
+                        AND me.evento = 'RECHAZADO'
+                  )
+                UNION
+                SELECT p.vehiculo_id AS vehiculo_id
+                FROM prestamos_vehiculos p
+                WHERE p.vehiculo_id IS NOT NULL
+                  AND p.estado = 'VALIDADO'
+                  AND (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+            )
+        """, (fecha_txt, fecha_txt))
         ocupados = {row["vehiculo_id"] for row in cur.fetchall() if row["vehiculo_id"]}
         conn.close()
         return ocupados
@@ -1188,16 +1213,17 @@ class DatabaseManager:
         if len(fechas_limpias) > 1:
             return False, "Solo se permite solicitar un dia por prestamo."
         hoy = date.today()
-        siguientes = []
-        cursor = hoy + timedelta(days=1)
-        while len(siguientes) < 4:
-            if cursor.weekday() < 5:
-                siguientes.append(cursor)
-            cursor += timedelta(days=1)
-        fechas_validas = {fecha.isoformat() for fecha in siguientes}
+        min_fecha = hoy
+        if min_fecha.weekday() == 5:
+            min_fecha = min_fecha + timedelta(days=2)
+        elif min_fecha.weekday() == 6:
+            min_fecha = min_fecha + timedelta(days=1)
+        max_fecha = min_fecha
+        if min_fecha.weekday() <= 4:
+            max_fecha = min_fecha + timedelta(days=(4 - min_fecha.weekday()))
         for fecha in fechas_limpias:
-            if fecha.isoformat() not in fechas_validas:
-                return False, "Las fechas deben estar dentro de los siguientes 4 dias habiles."
+            if fecha.weekday() >= 5 or fecha < min_fecha or fecha > max_fecha:
+                return False, "Las fechas deben estar dentro de la semana laboral actual."
         fechas_txt = ",".join([fecha.isoformat() for fecha in sorted(set(fechas_limpias))])
 
         conn = self._connect()
@@ -1661,6 +1687,66 @@ class DatabaseManager:
         q += " ORDER BY m.created_at DESC"
         cur.execute(q, params)
         data = [dict(r) for r in cur.fetchall()]
+        for mov in data:
+            mov["tipo"] = "movimiento"
+
+        if not usuario_id:
+            cur.execute("""
+                SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
+                       p.fecha_solicitud, p.estado, p.notas, p.fechas_solicitadas,
+                       p.responsable_id, p.responsable_nombre, p.no_pasajeros,
+                       p.ruta_destino, p.motivo_salida,
+                       v.placa AS placa_unidad, v.marca, v.modelo,
+                       us.nombre AS solicitante_nombre,
+                       up.nombre AS propietario_nombre
+                FROM prestamos_vehiculos p
+                JOIN usuarios us ON us.id = p.solicitante_id
+                JOIN usuarios up ON up.id = p.propietario_id
+                LEFT JOIN vehiculos v ON v.id = p.vehiculo_id
+                ORDER BY p.id DESC
+            """)
+            for row in cur.fetchall():
+                fechas_txt = row["fechas_solicitadas"] or ""
+                fecha_prestamo = ""
+                for item in fechas_txt.split(","):
+                    item = item.strip()
+                    if item:
+                        fecha_prestamo = item
+                        break
+                if not fecha_prestamo:
+                    fecha_prestamo = row["fecha_solicitud"]
+                estado = (row["estado"] or "").upper()
+                data.append({
+                    "id": row["id"],
+                    "folio": f"PRE-{row['id']}",
+                    "ente_clave": None,
+                    "fecha_solicitud": fecha_prestamo,
+                    "fecha_entrega": fecha_prestamo if estado == "VALIDADO" else None,
+                    "fecha_devolucion": None,
+                    "cantidad": 1,
+                    "receptor_nombre": None,
+                    "firma_recepcion": None,
+                    "devuelto": 0,
+                    "observaciones": row["notas"],
+                    "resguardante_nombre": row["propietario_nombre"],
+                    "resguardante_id": row["propietario_id"],
+                    "placa_unidad": row["placa_unidad"],
+                    "marca": row["marca"],
+                    "modelo": row["modelo"],
+                    "responsable_vehiculo": row["responsable_nombre"],
+                    "vehiculo_id": row["vehiculo_id"],
+                    "responsable_id": row["responsable_id"],
+                    "no_pasajeros": row["no_pasajeros"],
+                    "pasajeros_nombres": "",
+                    "ruta_destino": row["ruta_destino"],
+                    "motivo_salida": row["motivo_salida"],
+                    "rechazado": 1 if estado == "RECHAZADO" else 0,
+                    "ente_nombre": None,
+                    "usuario_nombre": row["solicitante_nombre"],
+                    "tipo": "prestamo",
+                    "estado": estado,
+                })
+
         conn.close()
         pendientes_por_vehiculo = {}
         for mov in data:
@@ -1961,6 +2047,99 @@ class DatabaseManager:
         conn.commit()
         conn.close()
         return True, "Movimiento rechazado."
+
+    def marcar_prestamo_validado(self, prestamo_id: int, usuario_id: int) -> Tuple[bool, str]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, vehiculo_id, fechas_solicitadas, estado
+            FROM prestamos_vehiculos
+            WHERE id=?
+        """, (prestamo_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False, "Prestamo no encontrado."
+        estado = (row["estado"] or "").upper()
+        if estado == "RECHAZADO":
+            conn.close()
+            return False, "El prestamo ya fue rechazado."
+        if estado == "VALIDADO":
+            conn.close()
+            return False, "El prestamo ya fue validado."
+        fecha_prestamo = ""
+        for item in (row["fechas_solicitadas"] or "").split(","):
+            item = _parse_date(item.strip())
+            if item:
+                fecha_prestamo = item
+                break
+        if not fecha_prestamo:
+            conn.close()
+            return False, "Fecha de prestamo no valida."
+        cur.execute("""
+            SELECT 1
+            FROM movimientos m
+            WHERE m.vehiculo_id=?
+              AND m.fecha_solicitud=?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
+            LIMIT 1
+        """, (row["vehiculo_id"], fecha_prestamo))
+        if cur.fetchone():
+            conn.close()
+            return False, "El vehiculo ya esta asignado para esa fecha."
+        cur.execute("""
+            SELECT 1
+            FROM prestamos_vehiculos p
+            WHERE p.vehiculo_id=?
+              AND p.estado='VALIDADO'
+              AND p.id != ?
+              AND (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+            LIMIT 1
+        """, (row["vehiculo_id"], prestamo_id, fecha_prestamo))
+        if cur.fetchone():
+            conn.close()
+            return False, "El vehiculo ya tiene un prestamo validado para esa fecha."
+        cur.execute("""
+            UPDATE prestamos_vehiculos
+            SET estado='VALIDADO'
+            WHERE id=?
+        """, (prestamo_id,))
+        conn.commit()
+        conn.close()
+        return True, "Prestamo validado."
+
+    def marcar_prestamo_rechazado(self, prestamo_id: int, usuario_id: int) -> Tuple[bool, str]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, estado
+            FROM prestamos_vehiculos
+            WHERE id=?
+        """, (prestamo_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False, "Prestamo no encontrado."
+        estado = (row["estado"] or "").upper()
+        if estado == "RECHAZADO":
+            conn.close()
+            return False, "El prestamo ya fue rechazado."
+        if estado == "VALIDADO":
+            conn.close()
+            return False, "El prestamo ya fue validado."
+        cur.execute("""
+            UPDATE prestamos_vehiculos
+            SET estado='RECHAZADO'
+            WHERE id=?
+        """, (prestamo_id,))
+        conn.commit()
+        conn.close()
+        return True, "Prestamo rechazado."
 
     def marcar_devuelto(self, movimiento_id: int, usuario_id: int) -> Tuple[bool, str]:
         conn = self._connect()

@@ -668,6 +668,36 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             )
         return redirect(url_for("admin"))
 
+    @app.route("/prestamos/<int:prestamo_id>/validar", methods=["POST"])
+    def prestamos_validar(prestamo_id: int):
+        if session.get("rol") not in {"admin", "monitor"}:
+            return redirect(url_for("dashboard"))
+        ok, mensaje = db_manager.marcar_prestamo_validado(prestamo_id, session.get("usuario_id"))
+        if not ok:
+            return render_template(
+                "admin.html",
+                usuario=session.get("nombre"),
+                rol=session.get("rol"),
+                error=mensaje,
+                **_build_admin_context(app, db_manager),
+            )
+        return redirect(url_for("admin"))
+
+    @app.route("/prestamos/<int:prestamo_id>/rechazar", methods=["POST"])
+    def prestamos_rechazar(prestamo_id: int):
+        if session.get("rol") not in {"admin", "monitor"}:
+            return redirect(url_for("dashboard"))
+        ok, mensaje = db_manager.marcar_prestamo_rechazado(prestamo_id, session.get("usuario_id"))
+        if not ok:
+            return render_template(
+                "admin.html",
+                usuario=session.get("nombre"),
+                rol=session.get("rol"),
+                error=mensaje,
+                **_build_admin_context(app, db_manager),
+            )
+        return redirect(url_for("admin"))
+
     @app.route("/movimientos/<int:mov_id>/devolver", methods=["POST"])
     def movimientos_devolver(mov_id: int):
         if session.get("rol") != "admin":
