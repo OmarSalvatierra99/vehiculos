@@ -3,7 +3,8 @@
 {% block title %}REPORTES · INVENTARIO VEHICULAR{% endblock %}
 
 {% block content %}
-<section class="card report">
+{% set movimientos_len = movimientos|length if movimientos else 0 %}
+<section class="card report{% if movimientos_len >= 16 %} report-ultra{% elif movimientos_len > 10 %} report-compact{% elif movimientos_len > 5 %} report-tight{% endif %}">
   <div class="report-doc-header">
     <div class="report-doc-logo">
       <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo institucional">
