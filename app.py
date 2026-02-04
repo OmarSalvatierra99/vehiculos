@@ -512,6 +512,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             "Notificación de Oficio",
             "Revisión de Auditoría",
             "Entrega de Recepción",
+            "Acta de Cierre",
             "Compulsas",
             "Inspección Física",
         }

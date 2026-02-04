@@ -1204,6 +1204,7 @@ class DatabaseManager:
             "Notificación de Oficio",
             "Revisión de Auditoría",
             "Entrega de Recepción",
+            "Acta de Cierre",
             "Compulsas",
             "Inspección Física",
         }
@@ -1470,6 +1471,7 @@ class DatabaseManager:
             "Notificación de Oficio",
             "Revisión de Auditoría",
             "Entrega de Recepción",
+            "Acta de Cierre",
             "Compulsas",
             "Inspección Física",
         }

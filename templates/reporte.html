@@ -30,10 +30,6 @@
   <div class="report-grid">
     {% set no_pasajeros = (movimiento.no_pasajeros or 0) | int %}
     <div class="report-block">
-      <span class="report-label">Ente solicitante</span>
-      <strong>{{ movimiento.ente_nombre or movimiento.ente_clave }}</strong>
-    </div>
-    <div class="report-block">
       <span class="report-label">Vehiculo solicitado</span>
       <strong>{{ movimiento.marca }} {{ movimiento.modelo }}</strong>
     </div>
