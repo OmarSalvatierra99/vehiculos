@@ -34,7 +34,7 @@
             <option value="prestamo" {% if tipo_solicitud == "prestamo" %}selected{% endif %}>Préstamo entre usuarios</option>
           </select>
         </label>
-        <p class="hint">Use la opción de préstamo para apartar unidades de otro usuario durante la semana actual.</p>
+        <p class="hint">Use la opción de préstamo para apartar unidades de otro usuario dentro de los dias habiles permitidos.</p>
       </fieldset>
 
       <fieldset class="form-section">
@@ -97,7 +97,7 @@
         <legend>Fecha de solicitud</legend>
         <label class="full">
           Fecha de salida
-          <input type="date" name="fecha_solicitud" id="fecha_solicitud" value="{{ fecha_solicitud }}" min="{{ today }}" required>
+          <input type="date" name="fecha_solicitud" id="fecha_solicitud" value="{{ fecha_solicitud }}" min="{{ fecha_min }}" max="{{ fecha_max }}" required>
         </label>
         <p class="hint">La unidad se aparta solo para el dia seleccionado.</p>
       </fieldset>
@@ -197,7 +197,10 @@
       </fieldset>
 
       <div class="actions full">
-        <button class="btn primary" type="submit" id="solicitud_submit">Registrar solicitud</button>
+        <button class="btn primary" type="submit" id="solicitud_submit" {% if solicitudes_bloqueadas %}disabled{% endif %}>Registrar solicitud</button>
+        {% if solicitudes_bloqueadas %}
+        <p class="hint">Las solicitudes de vehiculo se reciben hasta las 19:00 h.</p>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -300,7 +303,7 @@
       fechaSolicitudInput.max = state.maxIso;
       if (!state.ok) {
         fechaSolicitudInput.value = state.value;
-        alert("Seleccione una fecha dentro de la semana laboral (lunes a viernes).");
+        alert("Seleccione una fecha dentro de los dias habiles permitidos.");
         return;
       }
       const url = new URL(window.location.href);
@@ -319,14 +322,15 @@
   const clampToWorkweek = (dateValue) => {
     const today = new Date();
     let minDate = new Date(today);
-    if (minDate.getDay() === 6) {
-      minDate.setDate(minDate.getDate() + 2);
-    } else if (minDate.getDay() === 0) {
-      minDate.setDate(minDate.getDate() + 1);
-    }
-    const minDay = minDate.getDay();
-    const maxDate = new Date(minDate);
-    if (minDay <= 5) {
+    const todayDay = minDate.getDay();
+    let maxDate = new Date(minDate);
+    if (todayDay === 5 || todayDay === 6 || todayDay === 0) {
+      const daysToMonday = (8 - todayDay) % 7;
+      minDate.setDate(minDate.getDate() + daysToMonday);
+      maxDate = new Date(minDate);
+      maxDate.setDate(maxDate.getDate() + 3);
+    } else {
+      const minDay = minDate.getDay();
       maxDate.setDate(maxDate.getDate() + (5 - minDay));
     }
     const minIso = isoDate(minDate);
@@ -681,7 +685,7 @@
         if (!state.ok) {
           event.preventDefault();
           fechaSolicitudInput.value = state.value;
-          alert("La fecha de salida debe estar dentro de la semana laboral (lunes a viernes).");
+          alert("La fecha de salida debe estar dentro de los dias habiles permitidos.");
         }
       }
     });

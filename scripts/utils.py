@@ -55,6 +55,17 @@ def _hoy_iso() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def _limites_dias_habiles(base: Optional[date] = None) -> Tuple[date, date]:
+    hoy = base or date.today()
+    if hoy.weekday() >= 4:
+        dias_hasta_lunes = (7 - hoy.weekday()) % 7
+        inicio = hoy + timedelta(days=dias_hasta_lunes)
+        fin = inicio + timedelta(days=3)
+        return inicio, fin
+    fin = hoy + timedelta(days=(4 - hoy.weekday()))
+    return hoy, fin
+
+
 def _hash_password(clave: str) -> str:
     return hashlib.sha256(clave.encode()).hexdigest()
 
@@ -1212,18 +1223,10 @@ class DatabaseManager:
             return False, "Falta seleccionar al menos una fecha."
         if len(fechas_limpias) > 1:
             return False, "Solo se permite solicitar un dia por prestamo."
-        hoy = date.today()
-        min_fecha = hoy
-        if min_fecha.weekday() == 5:
-            min_fecha = min_fecha + timedelta(days=2)
-        elif min_fecha.weekday() == 6:
-            min_fecha = min_fecha + timedelta(days=1)
-        max_fecha = min_fecha
-        if min_fecha.weekday() <= 4:
-            max_fecha = min_fecha + timedelta(days=(4 - min_fecha.weekday()))
+        min_fecha, max_fecha = _limites_dias_habiles()
         for fecha in fechas_limpias:
             if fecha.weekday() >= 5 or fecha < min_fecha or fecha > max_fecha:
-                return False, "Las fechas deben estar dentro de la semana laboral actual."
+                return False, "Las fechas deben estar dentro de los dias habiles permitidos."
         fechas_txt = ",".join([fecha.isoformat() for fecha in sorted(set(fechas_limpias))])
 
         conn = self._connect()

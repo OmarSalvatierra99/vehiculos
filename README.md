@@ -1,36 +1,18 @@
-# 10-inventarios
+# Vehiculos — Fleet Inventory
 
-Sistema de control vehicular para auditoria institucional.
+Vehiculos manages vehicle records with clear status and assignment tracking.
+Vehiculos administra registros vehiculares con seguimiento de estado y asignacion.
 
-## Setup
+🔗 **Live / En vivo:** https://vehiculos.omar-xyz.shop
+🌐 **Language / Idioma:** English / Espanol
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+---
 
-## Run
+## Highlights / Lo mas importante
+- Register vehicles and details / Registrar vehiculos y detalles
+- Track status and assignments / Dar seguimiento a estado y asignacion
+- Search by plate or unit / Buscar por placa o unidad
 
-```bash
-python3 run.py
-```
+---
 
-## Deploy
-
-```bash
-sudo python3 scripts/autodeploy_all.py --project 10-10-inventarios
-```
-
-## Environment Variables
-
-Create `.env` file:
-```
-FLASK_ENV=development
-PORT=5001
-CATALOGOS_DIR=/home/gabo/portfolio/projects/10-inventarios/catalogos
-```
-
-🔗 **Live:** [Coming soon](https://example.com)
-
-Created: 2026-01-07
+© 2026 Omar Gabriel Salvatierra Garcia

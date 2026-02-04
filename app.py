@@ -179,10 +179,11 @@ def _normalizar_fecha_solicitud(fecha_txt: Optional[str]) -> str:
 
 def _limites_semana_laboral(base: Optional[date] = None) -> Tuple[date, date]:
     hoy = base or date.today()
-    if hoy.weekday() == 5:
-        hoy = hoy + timedelta(days=2)
-    elif hoy.weekday() == 6:
-        hoy = hoy + timedelta(days=1)
+    if hoy.weekday() >= 4:
+        dias_hasta_lunes = (7 - hoy.weekday()) % 7
+        inicio = hoy + timedelta(days=dias_hasta_lunes)
+        fin = inicio + timedelta(days=3)
+        return inicio, fin
     fin = hoy + timedelta(days=(4 - hoy.weekday()))
     return hoy, fin
 
@@ -196,6 +197,14 @@ def _fecha_laboral_valida(fecha_txt: str) -> bool:
         return False
     inicio, fin = _limites_semana_laboral()
     return inicio <= fecha <= fin
+
+
+def _solicitudes_bloqueadas(usuario: Optional[str]) -> bool:
+    usuario_txt = (usuario or "").strip().lower()
+    if usuario_txt == "luis":
+        return False
+    ahora = datetime.now()
+    return (ahora.hour, ahora.minute) >= (19, 0)
 
 
 def _build_dashboard_context(
@@ -228,6 +237,8 @@ def _build_dashboard_context(
         "vehiculos_prestables": vehiculos_prestables,
         "usuario_id": usuario_id,
         "today": date.today().isoformat(),
+        "fecha_min": _limites_semana_laboral()[0].isoformat(),
+        "fecha_max": _limites_semana_laboral()[1].isoformat(),
         "fecha_solicitud": fecha_txt,
     }
 
@@ -326,6 +337,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
         fecha = request.args.get("fecha")
         context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
+        context["solicitudes_bloqueadas"] = _solicitudes_bloqueadas(session.get("usuario"))
         return render_template(
             "dashboard.html",
             usuario=session.get("nombre"),
@@ -355,6 +367,21 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return redirect(url_for("login"))
         if session.get("rol") != "user":
             return redirect(url_for("dashboard"))
+
+        if _solicitudes_bloqueadas(session.get("usuario")):
+            fecha = request.form.get("fecha_solicitud", "").strip() or date.today().isoformat()
+            tipo_solicitud = request.form.get("tipo_solicitud", "").strip().lower()
+            if not tipo_solicitud:
+                tipo_solicitud = "prestamo" if request.form.get("prestamo_vehiculo") else "normal"
+            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
+            context["solicitudes_bloqueadas"] = True
+            return render_template(
+                "dashboard.html",
+                usuario=session.get("nombre"),
+                error="Las solicitudes de vehiculo se reciben hasta las 19:00 h.",
+                tipo_solicitud=tipo_solicitud,
+                **context,
+            )
 
         tipo_solicitud = request.form.get("tipo_solicitud", "").strip().lower()
         if not tipo_solicitud:
@@ -525,7 +552,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 return render_template(
                     "dashboard.html",
                     usuario=session.get("nombre"),
-                    error="La fecha de salida debe estar dentro de la semana laboral.",
+                    error="La fecha de salida debe estar dentro de los dias habiles permitidos.",
                     tipo_solicitud=tipo_solicitud,
                     **context,
                 )
