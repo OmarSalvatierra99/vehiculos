@@ -177,15 +177,31 @@ def _normalizar_fecha_solicitud(fecha_txt: Optional[str]) -> str:
         return date.today().isoformat()
 
 
-def _limites_semana_laboral(base: Optional[date] = None) -> Tuple[date, date]:
+def _limites_semana_laboral(base: Optional[date] = None, total: int = 5) -> Tuple[date, date]:
     hoy = base or date.today()
-    if hoy.weekday() >= 4:
-        dias_hasta_lunes = (7 - hoy.weekday()) % 7
-        inicio = hoy + timedelta(days=dias_hasta_lunes)
-        fin = inicio + timedelta(days=3)
-        return inicio, fin
-    fin = hoy + timedelta(days=(4 - hoy.weekday()))
-    return hoy, fin
+    inicio = hoy
+    if inicio.weekday() >= 5:
+        dias_hasta_lunes = (7 - inicio.weekday()) % 7
+        inicio = inicio + timedelta(days=dias_hasta_lunes)
+
+    fin = inicio
+    dias_contados = 1
+    while dias_contados < total:
+        fin += timedelta(days=1)
+        if fin.weekday() < 5:
+            dias_contados += 1
+    return inicio, fin
+
+
+def _proximos_dias_habiles(base: Optional[date] = None, total: int = 5) -> List[str]:
+    inicio, fin = _limites_semana_laboral(base, total)
+    dias = []
+    actual = inicio
+    while actual <= fin:
+        if actual.weekday() < 5:
+            dias.append(actual.isoformat())
+        actual += timedelta(days=1)
+    return dias
 
 
 def _fecha_laboral_valida(fecha_txt: str) -> bool:
@@ -200,11 +216,7 @@ def _fecha_laboral_valida(fecha_txt: str) -> bool:
 
 
 def _solicitudes_bloqueadas(usuario: Optional[str]) -> bool:
-    usuario_txt = (usuario or "").strip().lower()
-    if usuario_txt == "luis":
-        return False
-    ahora = datetime.now()
-    return (ahora.hour, ahora.minute) >= (19, 0)
+    return False
 
 
 def _build_dashboard_context(
@@ -219,8 +231,9 @@ def _build_dashboard_context(
     vehiculos = [vehiculo for vehiculo in vehiculos if vehiculo.get("id") not in ocupados]
     responsables = db_manager.listar_personal_resguardante(usuario_id)
     auditores = db_manager.listar_auditores_por_usuario(usuario_id)
+    auditores_ofs = db_manager.listar_auditores()
     if not auditores:
-        auditores = db_manager.listar_auditores()
+        auditores = auditores_ofs
     entes = db_manager.listar_entes()
     vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id)
     movimientos = db_manager.listar_movimientos(usuario_id=usuario_id)
@@ -230,15 +243,18 @@ def _build_dashboard_context(
     )
     return {
         "movimientos": alertas,
+        "mis_movimientos": movimientos,
         "vehiculos": vehiculos,
         "responsables": responsables,
         "auditores": auditores,
+        "auditores_ofs": auditores_ofs,
         "entes": entes,
         "vehiculos_prestables": vehiculos_prestables,
         "usuario_id": usuario_id,
         "today": date.today().isoformat(),
         "fecha_min": _limites_semana_laboral()[0].isoformat(),
         "fecha_max": _limites_semana_laboral()[1].isoformat(),
+        "fechas_habiles": _proximos_dias_habiles(),
         "fecha_solicitud": fecha_txt,
     }
 

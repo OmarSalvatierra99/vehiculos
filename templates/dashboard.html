@@ -15,7 +15,6 @@
     <div class="card-header">
       <h2>Registro de solicitud</h2>
       <p class="subtitle">Concentre datos clave en una sola captura.</p>
-      <div class="alert">Las solicitudes de vehiculo se reciben hasta las 19:00 h.</div>
     </div>
     <form method="post" action="{{ url_for('solicitar') }}" class="form-sections" id="solicitud_form">
       {% if error %}
@@ -24,6 +23,11 @@
       {% if ok %}
       <div class="alert full">{{ ok }}</div>
       {% endif %}
+
+      <div class="passenger-note full">
+        <strong>Horario de recepción</strong>
+        <p>Las solicitudes de vehiculo se reciben hasta las 19:00 h.</p>
+      </div>
 
       <fieldset class="form-section">
         <legend>Tipo de solicitud</legend>
@@ -35,6 +39,15 @@
           </select>
         </label>
         <p class="hint">Use la opción de préstamo para apartar unidades de otro usuario dentro de los dias habiles permitidos.</p>
+      </fieldset>
+
+      <fieldset class="form-section" id="solicitud_fecha_section">
+        <legend>Fecha de solicitud</legend>
+        <label class="full">
+          Fecha de salida
+          <input type="date" name="fecha_solicitud" id="fecha_solicitud" value="{{ fecha_solicitud }}" min="{{ fecha_min }}" max="{{ fecha_max }}" required>
+        </label>
+        <p class="hint">La unidad se aparta solo para el dia seleccionado.</p>
       </fieldset>
 
       <fieldset class="form-section">
@@ -93,15 +106,6 @@
         </label>
       </fieldset>
 
-      <fieldset class="form-section" id="solicitud_fecha_section">
-        <legend>Fecha de solicitud</legend>
-        <label class="full">
-          Fecha de salida
-          <input type="date" name="fecha_solicitud" id="fecha_solicitud" value="{{ fecha_solicitud }}" min="{{ fecha_min }}" max="{{ fecha_max }}" required>
-        </label>
-        <p class="hint">La unidad se aparta solo para el dia seleccionado.</p>
-      </fieldset>
-
       <fieldset class="form-section">
         <legend>Personal</legend>
         <label class="full">
@@ -121,7 +125,10 @@
           <input type="number" name="no_pasajeros" id="no_pasajeros" inputmode="numeric" min="0" max="4" step="1" value="4" required>
         </label>
         <label class="full" id="pasajeros_label">
-          Nombre de los auditores
+          <div class="actions-inline">
+            <span>Nombre de los auditores</span>
+            <button class="btn ghost btn-small" type="button" id="pasajeros_compulsa" aria-pressed="false">Compulsa</button>
+          </div>
           <div class="combobox-container" id="pasajeros_container">
             <div class="combobox-search">
               <input type="search" id="pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar auditores..." autocomplete="off">
@@ -136,6 +143,15 @@
                 <option value="" disabled>No hay auditores registrados</option>
               {% endif %}
             </select>
+            <select id="pasajeros_ids_all" hidden>
+              {% if auditores_ofs %}
+                {% for auditor in auditores_ofs %}
+                <option value="{{ auditor.id }}">{{ auditor.nombre }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>No hay auditores registrados</option>
+              {% endif %}
+            </select>
             <div class="combobox-meta">
               <span id="pasajeros_count" class="multi-count">0 seleccionados</span>
             </div>
@@ -143,6 +159,7 @@
               <span class="chip-empty">Ningún auditor seleccionado</span>
             </div>
           </div>
+          <p class="hint" id="pasajeros_compulsa_hint">Mostrando personal a tu cargo.</p>
           <div class="passenger-note">
             <strong>Importante</strong>
             <p>El conductor cuenta como pasajero. Seleccione únicamente el número de acompañantes</p>
@@ -190,6 +207,38 @@
         </label>
       </fieldset>
 
+      <fieldset class="form-section">
+        <legend>Solicitudes registradas</legend>
+        <p class="subtitle full">Vehiculos solicitados por ti con ruta, responsable y pasajeros</p>
+        {% if mis_movimientos %}
+        <div class="table table-5 full">
+          <div class="table-row header">
+            <span>Unidad</span>
+            <span>Fecha solicitud</span>
+            <span>Ruta</span>
+            <span>Responsable</span>
+            <span>Pasajeros</span>
+          </div>
+          {% for mov in mis_movimientos %}
+          <div class="table-row">
+            <span class="mono">
+              {{ mov.placa_unidad or '-' }}
+              {% if mov.marca or mov.modelo %}
+              <small>{{ mov.marca or '' }} {{ mov.modelo or '' }}</small>
+              {% endif %}
+            </span>
+            <span>{{ mov.fecha_solicitud or '-' }}</span>
+            <span>{{ mov.ruta_destino or 'Sin ruta' }}</span>
+            <span>{{ mov.responsable_vehiculo or 'Sin responsable' }}</span>
+            <span>{{ mov.pasajeros_nombres or 'Sin pasajeros' }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty full">No hay solicitudes registradas.</p>
+        {% endif %}
+      </fieldset>
+
       <fieldset class="form-section" id="observaciones_section" hidden>
         <label class="full">
           Observaciones (opcional)
@@ -198,10 +247,7 @@
       </fieldset>
 
       <div class="actions full">
-        <button class="btn primary" type="submit" id="solicitud_submit" {% if solicitudes_bloqueadas %}disabled{% endif %}>Registrar solicitud</button>
-        {% if solicitudes_bloqueadas %}
-        <p class="hint">Las solicitudes de vehiculo se reciben hasta las 19:00 h.</p>
-        {% endif %}
+        <button class="btn primary" type="submit" id="solicitud_submit">Registrar solicitud</button>
       </div>
     </form>
   </div>
@@ -221,6 +267,9 @@
   const submitBtn = document.getElementById("solicitud_submit");
   const noPasajerosInput = document.getElementById("no_pasajeros");
   const responsableSelect = document.getElementById("responsable_usuario_id");
+  const pasajerosSelect = document.getElementById("pasajeros_ids");
+  const pasajerosSelectAll = document.getElementById("pasajeros_ids_all");
+  const pasajerosSelectDefault = pasajerosSelect ? pasajerosSelect.cloneNode(true) : null;
 
   const updateUnidadResumen = () => {
     if (!vehiculoSelect) {
@@ -322,18 +371,22 @@
 
   const clampToWorkweek = (dateValue) => {
     const today = new Date();
-    let minDate = new Date(today);
-    const todayDay = minDate.getDay();
-    let maxDate = new Date(minDate);
-    if (todayDay === 5 || todayDay === 6 || todayDay === 0) {
-      const daysToMonday = (8 - todayDay) % 7;
+    const minDate = new Date(today);
+    const day = minDate.getDay();
+    if (day === 0 || day === 6) {
+      const daysToMonday = (8 - day) % 7;
       minDate.setDate(minDate.getDate() + daysToMonday);
-      maxDate = new Date(minDate);
-      maxDate.setDate(maxDate.getDate() + 3);
-    } else {
-      const minDay = minDate.getDay();
-      maxDate.setDate(maxDate.getDate() + (5 - minDay));
     }
+
+    const maxDate = new Date(minDate);
+    let counted = 1;
+    while (counted < 5) {
+      maxDate.setDate(maxDate.getDate() + 1);
+      if (maxDate.getDay() !== 0 && maxDate.getDay() !== 6) {
+        counted += 1;
+      }
+    }
+
     const minIso = isoDate(minDate);
     const maxIso = isoDate(maxDate);
     if (!dateValue) {
@@ -375,10 +428,14 @@
       return;
     }
 
-    const allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled);
+    let allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled);
     const maxSelected = Number.parseInt(selectEl.dataset.max, 10);
     const requiresPassengerLimit = Boolean(passengerLimitInput);
     let focusedIndex = -1;
+
+    const refreshOptions = () => {
+      allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled);
+    };
 
     const updateCount = () => {
       const selected = selectEl.selectedOptions.length;
@@ -552,6 +609,7 @@
 
     updateChips();
     updateCount();
+    refreshOptions();
 
     if (excludeLabelFn) {
       const syncExclusions = () => {
@@ -570,7 +628,7 @@
       }
     }
 
-    return { updateChips, updateCount, selectEl };
+    return { updateChips, updateCount, selectEl, refreshOptions };
   }
 
   const pasajerosCombobox = setupCombobox(
@@ -586,6 +644,50 @@
     },
   );
   const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");
+  const compulsaBtn = document.getElementById("pasajeros_compulsa");
+  const compulsaHint = document.getElementById("pasajeros_compulsa_hint");
+  let compulsaActiva = false;
+
+  const aplicarListaAuditores = (sourceSelect, hintText) => {
+    if (!pasajerosSelect || !sourceSelect) {
+      return;
+    }
+    const selectedValues = new Set(Array.from(pasajerosSelect.selectedOptions).map(opt => opt.value));
+    pasajerosSelect.innerHTML = "";
+    const options = Array.from(sourceSelect.options);
+    if (!options.length) {
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.disabled = true;
+      empty.textContent = "No hay auditores registrados";
+      pasajerosSelect.appendChild(empty);
+    } else {
+      options.forEach((opt) => {
+        const clone = opt.cloneNode(true);
+        clone.selected = selectedValues.has(clone.value);
+        pasajerosSelect.appendChild(clone);
+      });
+    }
+    pasajerosCombobox?.refreshOptions?.();
+    pasajerosCombobox?.updateChips?.();
+    pasajerosCombobox?.updateCount?.();
+    if (compulsaHint) {
+      compulsaHint.textContent = hintText;
+    }
+  };
+
+  if (compulsaBtn) {
+    compulsaBtn.addEventListener("click", () => {
+      compulsaActiva = !compulsaActiva;
+      compulsaBtn.setAttribute("aria-pressed", String(compulsaActiva));
+      compulsaBtn.classList.toggle("primary", compulsaActiva);
+      const source = compulsaActiva ? pasajerosSelectAll : pasajerosSelectDefault;
+      const hintText = compulsaActiva
+        ? "Mostrando todo el personal del OFS."
+        : "Mostrando personal a tu cargo.";
+      aplicarListaAuditores(source, hintText);
+    });
+  }
 
   const setupPassengerValidation = (formEl, pasajerosInput, pasajerosSelectId, pasajerosCombobox, containerId, labelId) => {
     if (!formEl || !pasajerosInput) {
