@@ -219,6 +219,10 @@ def _solicitudes_bloqueadas(usuario: Optional[str]) -> bool:
     return False
 
 
+def _es_visor_omar(usuario: Optional[str]) -> bool:
+    return (usuario or "").strip().lower() == "omar"
+
+
 def _build_dashboard_context(
     app: Flask,
     db_manager: DatabaseManager,
@@ -354,6 +358,10 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         fecha = request.args.get("fecha")
         context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
         context["solicitudes_bloqueadas"] = _solicitudes_bloqueadas(session.get("usuario"))
+        if _es_visor_omar(session.get("usuario")):
+            context["movimientos_usuarios_observados"] = db_manager.listar_movimientos_por_usuarios(
+                ["ramos", "mike"]
+            )
         return render_template(
             "dashboard.html",
             usuario=session.get("nombre"),

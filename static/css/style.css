@@ -1126,14 +1126,14 @@ textarea {
 
 @media print {
   @page {
-    size: letter landscape;
-    margin: 4mm;
+    size: letter portrait;
+    margin: 6mm;
   }
 
   html,
   body {
-    width: 11in;
-    height: 8.5in;
+    width: 8.5in;
+    height: 11in;
     margin: 0;
     background: #ffffff;
     color: #000000;
@@ -1241,7 +1241,7 @@ textarea {
     border-collapse: collapse;
     font-size: 6.8pt;
     table-layout: fixed;
-    margin-bottom: 12px;
+    margin: 6px auto 10px;
   }
 
   .report .table-row {
@@ -1259,6 +1259,7 @@ textarea {
     vertical-align: top;
     word-break: break-word;
     line-height: 1.2;
+    text-align: center;
   }
 
   .report .center-print {
@@ -1376,12 +1377,12 @@ textarea {
   }
 
   .report-ultra .table {
-    font-size: 4.8pt;
+    font-size: 5pt;
   }
 
   .report-ultra .table-row span {
     padding: 2px 3px;
-    line-height: 1.02;
+    line-height: 1.04;
   }
 
   .report-ultra .table-row.header span {

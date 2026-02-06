@@ -239,6 +239,56 @@
         {% endif %}
       </fieldset>
 
+      {% if movimientos_usuarios_observados is defined %}
+      <fieldset class="form-section">
+        <legend>Solicitudes de Ramos y Mike</legend>
+        <p class="subtitle full">Visualizacion especial para el usuario Omar.</p>
+        {% if movimientos_usuarios_observados %}
+        <div class="table table-7 full">
+          <div class="table-row header">
+            <span>Solicitante</span>
+            <span>Unidad</span>
+            <span>Fecha</span>
+            <span>Ruta</span>
+            <span>Responsable</span>
+            <span>Pasajeros</span>
+            <span>Estatus</span>
+          </div>
+          {% for mov in movimientos_usuarios_observados %}
+          <div class="table-row">
+            <span>{{ mov.usuario_nombre }}</span>
+            <span class="mono">
+              {{ mov.placa_unidad or '-' }}
+              {% if mov.marca or mov.modelo %}
+              <small>{{ mov.marca or '' }} {{ mov.modelo or '' }}</small>
+              {% endif %}
+            </span>
+            <span>{{ mov.fecha_solicitud or '-' }}</span>
+            <span>{{ mov.ruta_destino or 'Sin ruta' }}</span>
+            <span>{{ mov.responsable_vehiculo or 'Sin responsable' }}</span>
+            <span>{{ mov.pasajeros_nombres or 'Sin pasajeros' }}</span>
+            <span>
+              {% if mov.rechazado %}
+                Rechazado
+              {% elif mov.devuelto %}
+                Devuelto
+              {% elif mov.fecha_entrega %}
+                En uso
+              {% elif mov.conflicto %}
+                Conflicto
+              {% else %}
+                Pendiente
+              {% endif %}
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty full">No hay solicitudes registradas.</p>
+        {% endif %}
+      </fieldset>
+      {% endif %}
+
       <fieldset class="form-section" id="observaciones_section" hidden>
         <label class="full">
           Observaciones (opcional)

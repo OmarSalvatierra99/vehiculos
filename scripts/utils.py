@@ -605,6 +605,8 @@ class DatabaseManager:
             ("C.P. Ángel Flores Licona", "angel", "angel2025", "user", ""),
             ("C.P. Juan José Blanco Sánchez", "juan", "juan2025", "user", ""),
             ("Ing. Omar Alfredo Castro Orozco", "omar", "omar2025", "user", ""),
+            ("Ramos", "ramos", "Ramos!23", "user", ""),
+            ("Mike", "mike", "Mike!16", "user", ""),
         ]
 
         for nombre, usuario, clave_txt, rol_txt, puesto in usuarios_requeridos:
@@ -1751,6 +1753,147 @@ class DatabaseManager:
                     "tipo": "prestamo",
                     "estado": estado,
                 })
+
+        conn.close()
+        pendientes_por_vehiculo = {}
+        for mov in data:
+            if (
+                mov.get("vehiculo_id")
+                and mov.get("fecha_solicitud")
+                and not mov.get("fecha_entrega")
+                and not mov.get("devuelto")
+                and not mov.get("rechazado")
+            ):
+                clave = (mov["vehiculo_id"], mov["fecha_solicitud"])
+                pendientes_por_vehiculo[clave] = pendientes_por_vehiculo.get(clave, 0) + 1
+        for mov in data:
+            clave = None
+            if mov.get("vehiculo_id") and mov.get("fecha_solicitud"):
+                clave = (mov["vehiculo_id"], mov["fecha_solicitud"])
+            mov["conflicto"] = bool(clave and pendientes_por_vehiculo.get(clave, 0) > 1)
+        return data
+
+    def listar_movimientos_por_usuarios(self, usuarios: List[str]) -> List[Dict]:
+        usuarios_norm = [u.strip().lower() for u in usuarios if u and u.strip()]
+        if not usuarios_norm:
+            return []
+        placeholders = ",".join(["?"] * len(usuarios_norm))
+
+        conn = self._connect()
+        cur = conn.cursor()
+        q = f"""
+            SELECT m.id, m.folio, m.ente_clave, m.fecha_solicitud,
+                   m.fecha_entrega, m.fecha_devolucion, m.cantidad,
+                   m.receptor_nombre, m.firma_recepcion,
+                   m.devuelto, m.observaciones, m.resguardante_nombre,
+                   COALESCE(m.placa_unidad, v.placa) AS placa_unidad,
+                   COALESCE(m.marca, v.marca) AS marca,
+                   COALESCE(m.modelo, v.modelo) AS modelo,
+                   COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
+                   m.vehiculo_id, m.responsable_id,
+                   m.no_pasajeros,
+                   COALESCE((
+                       SELECT group_concat(nombre, ', ')
+                       FROM (
+                           SELECT a2.nombre AS nombre
+                           FROM movimientos_auditores ma
+                           JOIN auditores a2 ON a2.id = ma.auditor_id
+                           WHERE ma.movimiento_id = m.id
+                             AND a2.nombre != COALESCE(m.responsable_vehiculo, uresp.nombre)
+                           ORDER BY a2.nombre
+                       )
+                   ), "") AS pasajeros_nombres,
+                   COALESCE((
+                       SELECT group_concat(destino, ' -> ')
+                       FROM (
+                           SELECT CASE
+                               WHEN e2.clave = 'CCLET' THEN e2.clave
+                               ELSE COALESCE(e2.nombre, md.ente_clave)
+                           END AS destino
+                           FROM movimientos_destinos md
+                           LEFT JOIN entes e2 ON e2.clave = md.ente_clave
+                           WHERE md.movimiento_id = m.id
+                           ORDER BY md.orden
+                       )
+                   ), m.ruta_destino) AS ruta_destino,
+                   m.motivo_salida,
+                   EXISTS(
+                       SELECT 1
+                       FROM movimientos_eventos me
+                       WHERE me.movimiento_id = m.id
+                         AND me.evento = 'RECHAZADO'
+                   ) AS rechazado,
+                   e.nombre AS ente_nombre,
+                   u.nombre AS usuario_nombre
+            FROM movimientos m
+            JOIN usuarios u ON u.id = m.usuario_id
+            LEFT JOIN entes e ON e.clave = m.ente_clave
+            LEFT JOIN vehiculos v ON v.id = m.vehiculo_id
+            LEFT JOIN usuarios uresp ON uresp.id = m.responsable_id
+            WHERE LOWER(u.usuario) IN ({placeholders})
+            ORDER BY m.created_at DESC
+        """
+        cur.execute(q, usuarios_norm)
+        data = [dict(r) for r in cur.fetchall()]
+        for mov in data:
+            mov["tipo"] = "movimiento"
+
+        cur.execute(f"""
+            SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
+                   p.fecha_solicitud, p.estado, p.notas, p.fechas_solicitadas,
+                   p.responsable_id, p.responsable_nombre, p.no_pasajeros,
+                   p.ruta_destino, p.motivo_salida,
+                   v.placa AS placa_unidad, v.marca, v.modelo,
+                   us.nombre AS solicitante_nombre,
+                   up.nombre AS propietario_nombre
+            FROM prestamos_vehiculos p
+            JOIN usuarios us ON us.id = p.solicitante_id
+            JOIN usuarios up ON up.id = p.propietario_id
+            LEFT JOIN vehiculos v ON v.id = p.vehiculo_id
+            WHERE LOWER(us.usuario) IN ({placeholders})
+            ORDER BY p.id DESC
+        """, usuarios_norm)
+        for row in cur.fetchall():
+            fechas_txt = row["fechas_solicitadas"] or ""
+            fecha_prestamo = ""
+            for item in fechas_txt.split(","):
+                item = item.strip()
+                if item:
+                    fecha_prestamo = item
+                    break
+            if not fecha_prestamo:
+                fecha_prestamo = row["fecha_solicitud"]
+            estado = (row["estado"] or "").upper()
+            data.append({
+                "id": row["id"],
+                "folio": f"PRE-{row['id']}",
+                "ente_clave": None,
+                "fecha_solicitud": fecha_prestamo,
+                "fecha_entrega": fecha_prestamo if estado == "VALIDADO" else None,
+                "fecha_devolucion": None,
+                "cantidad": 1,
+                "receptor_nombre": None,
+                "firma_recepcion": None,
+                "devuelto": 0,
+                "observaciones": row["notas"],
+                "resguardante_nombre": row["propietario_nombre"],
+                "resguardante_id": row["propietario_id"],
+                "placa_unidad": row["placa_unidad"],
+                "marca": row["marca"],
+                "modelo": row["modelo"],
+                "responsable_vehiculo": row["responsable_nombre"],
+                "vehiculo_id": row["vehiculo_id"],
+                "responsable_id": row["responsable_id"],
+                "no_pasajeros": row["no_pasajeros"],
+                "pasajeros_nombres": "",
+                "ruta_destino": row["ruta_destino"],
+                "motivo_salida": row["motivo_salida"],
+                "rechazado": 1 if estado == "RECHAZADO" else 0,
+                "ente_nombre": None,
+                "usuario_nombre": row["solicitante_nombre"],
+                "tipo": "prestamo",
+                "estado": estado,
+            })
 
         conn.close()
         pendientes_por_vehiculo = {}
