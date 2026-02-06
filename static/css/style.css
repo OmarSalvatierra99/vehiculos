@@ -1127,7 +1127,7 @@ textarea {
 @media print {
   @page {
     size: letter portrait;
-    margin: 6mm;
+    margin: 4mm;
   }
 
   html,
@@ -1183,65 +1183,71 @@ textarea {
   .report-doc-header {
     box-shadow: none;
     border: 1px solid #000000;
-    padding: 6px 8px;
+    padding: 4px 6px;
+    page-break-inside: avoid;
   }
 
   .report-doc-logo img {
-    width: 48px;
-    height: 48px;
+    width: 42px;
+    height: 42px;
   }
 
   .report-doc-name {
-    font-size: 0.62rem;
+    font-size: 0.54rem;
   }
 
   .report-doc-tag {
     border-color: #000000;
     background: #ffffff;
-    font-size: 0.5rem;
+    font-size: 0.46rem;
+    padding: 4px 6px;
   }
 
   .report-doc-key {
     border-color: #000000;
-    font-size: 0.52rem;
+    font-size: 0.48rem;
+    padding: 6px 8px;
   }
 
   .report-header h2 {
-    font-size: 0.76rem;
+    font-size: 0.62rem;
+    page-break-after: avoid;
   }
 
   .report-subtitle {
-    font-size: 0.54rem;
+    font-size: 0.46rem;
   }
 
   .report-warning {
     border-color: #000000;
     background: #ffffff;
-    font-size: 0.58rem;
-    margin-top: 6px;
+    font-size: 0.46rem;
+    margin-top: 4px;
+    padding: 6px 8px;
   }
 
   .report-grid {
     gap: 8px;
-    margin: 12px 0 6px;
+    margin: 8px 0 4px;
     flex: 1 1 auto;
   }
 
   .report-block {
-    padding: 8px 10px;
+    padding: 6px 8px;
   }
 
   .report-label {
-    font-size: 0.55rem;
+    font-size: 0.5rem;
   }
 
   .report .table {
     display: table;
     width: 100%;
     border-collapse: collapse;
-    font-size: 6.8pt;
+    font-size: 5.2pt;
     table-layout: fixed;
-    margin: 6px auto 10px;
+    margin: 4px auto 6px;
+    page-break-inside: avoid;
   }
 
   .report .table-row {
@@ -1254,11 +1260,11 @@ textarea {
 
   .report .table-row span {
     display: table-cell;
-    padding: 5px 7px;
+    padding: 3px 5px;
     border: 1px solid #000000;
     vertical-align: top;
     word-break: break-word;
-    line-height: 1.2;
+    line-height: 1.1;
     text-align: center;
   }
 
@@ -1268,7 +1274,7 @@ textarea {
 
   .report .table-row.header span {
     background: #e6e6e6;
-    font-size: 6.2pt;
+    font-size: 5pt;
     letter-spacing: 0.08em;
   }
 
@@ -1285,16 +1291,16 @@ textarea {
   }
 
   .report-tight .report-header h2 {
-    font-size: 0.7rem;
+    font-size: 0.62rem;
   }
 
   .report-tight .report-subtitle,
   .report-tight .report-warning {
-    font-size: 0.46rem;
+    font-size: 0.42rem;
   }
 
   .report-tight .table {
-    font-size: 5.8pt;
+    font-size: 5.2pt;
   }
 
   .report-tight .table-row span {
@@ -1303,18 +1309,18 @@ textarea {
   }
 
   .report-tight .table-row.header span {
-    font-size: 5.6pt;
+    font-size: 5pt;
     letter-spacing: 0.05em;
   }
 
   .report-compact .table-row span {
-    font-size: 8pt;
+    font-size: 7pt;
     padding: 3px 5px;
     line-height: 1.08;
   }
 
   .report-compact .table-row.header span {
-    font-size: 5pt;
+    font-size: 4.6pt;
     letter-spacing: 0.04em;
   }
 
@@ -1333,7 +1339,7 @@ textarea {
   }
 
   .report-ultra .report-doc-name {
-    font-size: 0.48rem;
+    font-size: 0.44rem;
     line-height: 1.1;
   }
 
@@ -1356,12 +1362,12 @@ textarea {
   }
 
   .report-ultra .report-header h2 {
-    font-size: 0.64rem;
+    font-size: 0.58rem;
   }
 
   .report-ultra .report-subtitle,
   .report-ultra .report-warning {
-    font-size: 0.42rem;
+    font-size: 0.38rem;
   }
 
   .report-ultra .report-warning {
@@ -1377,7 +1383,7 @@ textarea {
   }
 
   .report-ultra .table {
-    font-size: 5pt;
+    font-size: 4.6pt;
   }
 
   .report-ultra .table-row span {
@@ -1386,7 +1392,7 @@ textarea {
   }
 
   .report-ultra .table-row.header span {
-    font-size: 4.6pt;
+    font-size: 4.2pt;
     letter-spacing: 0.03em;
   }
 
@@ -1396,11 +1402,11 @@ textarea {
 
   .signature {
     margin-top: 10px;
-    margin-top: auto;
+    margin-top: 6px;
   }
 
   .signature-line {
-    height: 20px;
+    height: 18px;
   }
 }
 
