@@ -1183,35 +1183,35 @@ textarea {
   .report-doc-header {
     box-shadow: none;
     border: 1px solid #000000;
-    padding: 8px 10px;
+    padding: 6px 8px;
   }
 
   .report-doc-logo img {
-    width: 56px;
-    height: 56px;
+    width: 48px;
+    height: 48px;
   }
 
   .report-doc-name {
-    font-size: 0.7rem;
+    font-size: 0.62rem;
   }
 
   .report-doc-tag {
     border-color: #000000;
     background: #ffffff;
-    font-size: 0.55rem;
+    font-size: 0.5rem;
   }
 
   .report-doc-key {
     border-color: #000000;
-    font-size: 0.58rem;
+    font-size: 0.52rem;
   }
 
   .report-header h2 {
-    font-size: 0.85rem;
+    font-size: 0.76rem;
   }
 
   .report-subtitle {
-    font-size: 0.6rem;
+    font-size: 0.54rem;
   }
 
   .report-warning {
@@ -1239,7 +1239,7 @@ textarea {
     display: table;
     width: 100%;
     border-collapse: collapse;
-    font-size: 7.5pt;
+    font-size: 6.8pt;
     table-layout: fixed;
     margin-bottom: 12px;
   }
@@ -1254,11 +1254,11 @@ textarea {
 
   .report .table-row span {
     display: table-cell;
-    padding: 6px 8px;
+    padding: 5px 7px;
     border: 1px solid #000000;
     vertical-align: top;
     word-break: break-word;
-    line-height: 1.25;
+    line-height: 1.2;
   }
 
   .report .center-print {
@@ -1267,7 +1267,7 @@ textarea {
 
   .report .table-row.header span {
     background: #e6e6e6;
-    font-size: 7pt;
+    font-size: 6.2pt;
     letter-spacing: 0.08em;
   }
 

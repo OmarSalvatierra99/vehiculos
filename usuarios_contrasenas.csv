@@ -5,3 +5,5 @@ id,usuario,nombre,rol,activo,contrasena
 4,angel,C.P. Angel Flores Licona,user,1,AngelFL#24
 10,omar,Ing. Omar Alfredo Castro Orozco,user,1,OmarAC$24
 13,monitor,Monitor Vehicular,monitor,1,MonitorVeh!24
+15,Ramos,Arq. Ramos Martín Quiebras Techalotzi,user,1,Ramos!23
+16,mike,Arq. José Miguel Ángel Morales Vásquez,user,1,Mike!16
