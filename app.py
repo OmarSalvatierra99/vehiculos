@@ -177,6 +177,25 @@ def _normalizar_fecha_solicitud(fecha_txt: Optional[str]) -> str:
         return date.today().isoformat()
 
 
+def _fecha_iso_desde_texto(fecha_txt: Optional[str]) -> Optional[str]:
+    if not fecha_txt:
+        return None
+    fecha_base = str(fecha_txt).strip()[:10]
+    try:
+        return datetime.strptime(fecha_base, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return None
+
+
+def _filtrar_movimientos_hoy(movimientos: List[dict], hoy: Optional[date] = None) -> List[dict]:
+    hoy_iso = (hoy or date.today()).isoformat()
+    filtrados = []
+    for mov in movimientos:
+        if _fecha_iso_desde_texto(mov.get("fecha_solicitud")) == hoy_iso:
+            filtrados.append(mov)
+    return filtrados
+
+
 def _limites_semana_laboral(base: Optional[date] = None, total: int = 5) -> Tuple[date, date]:
     hoy = base or date.today()
     inicio = hoy
@@ -230,17 +249,64 @@ def _build_dashboard_context(
     fecha_solicitud: Optional[str] = None,
 ) -> dict:
     fecha_txt = _normalizar_fecha_solicitud(fecha_solicitud)
-    vehiculos = db_manager.listar_vehiculos(usuario_id=usuario_id)
+    usuario_actual = (session.get("usuario") or "").strip().lower()
+    if usuario_actual in {"mike", "ramos"}:
+        omar_id = db_manager.obtener_usuario_id("omar")
+        vehiculos = db_manager.listar_vehiculos(usuario_id=omar_id) if omar_id else []
+    else:
+        vehiculos = db_manager.listar_vehiculos(usuario_id=usuario_id)
     ocupados = db_manager.obtener_vehiculos_ocupados(fecha_txt)
     vehiculos = [vehiculo for vehiculo in vehiculos if vehiculo.get("id") not in ocupados]
-    responsables = db_manager.listar_personal_resguardante(usuario_id)
-    auditores = db_manager.listar_auditores_por_usuario(usuario_id)
-    auditores_ofs = db_manager.listar_auditores()
+    ocupados_auditores = db_manager.obtener_auditores_ocupados(fecha_txt)
+    ocupados_responsables_usuario = db_manager.obtener_usuarios_responsables_ocupados(fecha_txt)
+    auditores_ofs = [
+        item for item in db_manager.listar_auditores()
+        if item.get("id") not in ocupados_auditores
+    ]
+    auditores_ofs_por_id = {item.get("id"): item for item in auditores_ofs if item.get("id")}
+
+    def _dedupe_por_id(items: List[dict]) -> List[dict]:
+        seen = set()
+        unique = []
+        for item in items:
+            item_id = item.get("id")
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            unique.append(item)
+        return unique
+
+    responsables = _dedupe_por_id([
+        item for item in db_manager.listar_personal_resguardante(usuario_id)
+        if item.get("id") not in ocupados_auditores
+    ])
+    auditores = _dedupe_por_id([
+        item for item in db_manager.listar_auditores_por_usuario(usuario_id)
+        if item.get("id") not in ocupados_auditores
+    ])
+
+    # Asegura que el resguardante (usuario actual) pueda aparecer tambien como auditor,
+    # cuando exista en el catalogo de auditores y no este ocupado.
+    nombre_usuario = (session.get("nombre") or "").strip().lower()
+    auditor_resguardante_id = None
+    for auditor in auditores_ofs:
+        if (auditor.get("nombre") or "").strip().lower() == nombre_usuario:
+            auditor_resguardante_id = auditor.get("id")
+            break
+    if auditor_resguardante_id and auditor_resguardante_id in auditores_ofs_por_id:
+        auditor_resguardante = auditores_ofs_por_id[auditor_resguardante_id]
+        if all(item.get("id") != auditor_resguardante_id for item in auditores):
+            auditores.append(auditor_resguardante)
+        if all(item.get("id") != auditor_resguardante_id for item in responsables):
+            responsables.append(auditor_resguardante)
+
     if not auditores:
         auditores = auditores_ofs
     entes = db_manager.listar_entes()
     vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id)
-    movimientos = db_manager.listar_movimientos(usuario_id=usuario_id)
+    movimientos = _filtrar_movimientos_hoy(
+        db_manager.listar_movimientos(usuario_id=usuario_id)
+    )
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
         app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
@@ -255,6 +321,8 @@ def _build_dashboard_context(
         "entes": entes,
         "vehiculos_prestables": vehiculos_prestables,
         "usuario_id": usuario_id,
+        "resguardante_disponible": usuario_id not in ocupados_responsables_usuario,
+        "auditor_resguardante_id": auditor_resguardante_id,
         "today": date.today().isoformat(),
         "fecha_min": _limites_semana_laboral()[0].isoformat(),
         "fecha_max": _limites_semana_laboral()[1].isoformat(),
@@ -263,13 +331,18 @@ def _build_dashboard_context(
     }
 
 
-def _build_admin_context(app: Flask, db_manager: DatabaseManager) -> dict:
+def _build_admin_context(app: Flask, db_manager: DatabaseManager, rol: Optional[str] = None) -> dict:
     movimientos = db_manager.listar_movimientos()
+    if rol == "monitor":
+        movimientos = _filtrar_movimientos_hoy(movimientos)
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
         app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
     )
-    vehiculos = db_manager.listar_vehiculos()
+    if rol == "monitor":
+        vehiculos = db_manager.listar_vehiculos_con_propietarios()
+    else:
+        vehiculos = db_manager.listar_vehiculos()
     responsables = db_manager.listar_responsables()
     total_stock, total_disponible = db_manager.contar_vehiculos_disponibles()
     en_uso = sum(
@@ -359,8 +432,8 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
         context["solicitudes_bloqueadas"] = _solicitudes_bloqueadas(session.get("usuario"))
         if _es_visor_omar(session.get("usuario")):
-            context["movimientos_usuarios_observados"] = db_manager.listar_movimientos_por_usuarios(
-                ["ramos", "mike"]
+            context["movimientos_usuarios_observados"] = _filtrar_movimientos_hoy(
+                db_manager.listar_movimientos_por_usuarios(["ramos", "mike"])
             )
         return render_template(
             "dashboard.html",
@@ -373,7 +446,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     def admin():
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
-        context = _build_admin_context(app, db_manager)
+        context = _build_admin_context(app, db_manager, session.get("rol"))
         return render_template(
             "admin.html",
             usuario=session.get("nombre"),
@@ -682,7 +755,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             )
             return render_template(
                 "admin.html",
-                **_build_admin_context(app, db_manager),
+                **_build_admin_context(app, db_manager, session.get("rol")),
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
@@ -701,7 +774,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager),
+                **_build_admin_context(app, db_manager, session.get("rol")),
             )
         return redirect(url_for("admin"))
 
@@ -716,7 +789,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager),
+                **_build_admin_context(app, db_manager, session.get("rol")),
             )
         return redirect(url_for("admin"))
 
@@ -731,7 +804,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager),
+                **_build_admin_context(app, db_manager, session.get("rol")),
             )
         return redirect(url_for("admin"))
 
@@ -746,7 +819,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager),
+                **_build_admin_context(app, db_manager, session.get("rol")),
             )
         return redirect(url_for("admin"))
 
@@ -761,7 +834,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager),
+                **_build_admin_context(app, db_manager, session.get("rol")),
             )
         return redirect(url_for("admin"))
 

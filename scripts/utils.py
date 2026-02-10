@@ -671,6 +671,22 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def obtener_usuario_id(self, usuario: str) -> Optional[int]:
+        if not usuario:
+            return None
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id
+            FROM usuarios
+            WHERE LOWER(usuario)=LOWER(?)
+        """, (usuario.strip(),))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return row["id"]
+
     def listar_usuarios(self, resguardante_id: Optional[int] = None) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
@@ -1052,6 +1068,23 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def listar_vehiculos_con_propietarios(self) -> List[Dict]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT v.id, v.placa, v.modelo, v.marca,
+                   COALESCE(GROUP_CONCAT(u.nombre, ', '), '') AS propietarios_nombres
+            FROM vehiculos v
+            LEFT JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
+            LEFT JOIN usuarios u ON u.id = uv.usuario_id
+            WHERE v.activo=1
+            GROUP BY v.id
+            ORDER BY v.placa
+        """)
+        data = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return data
+
     def listar_vehiculos_disponibles(self, fecha_iso: Optional[str] = None) -> List[Dict]:
         fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
         conn = self._connect()
@@ -1165,6 +1198,155 @@ class DatabaseManager:
             )
         """, (fecha_txt, fecha_txt))
         ocupados = {row["vehiculo_id"] for row in cur.fetchall() if row["vehiculo_id"]}
+        conn.close()
+        return ocupados
+
+    def _obtener_auditores_ocupados_cursor(self, cur, fecha_txt: str) -> set:
+        cur.execute("""
+            SELECT DISTINCT a.id
+            FROM movimientos m
+            JOIN auditores a
+              ON LOWER(TRIM(a.nombre)) = LOWER(TRIM(COALESCE(m.responsable_vehiculo, '')))
+            WHERE m.fecha_solicitud = ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
+        """, (fecha_txt,))
+        ocupados = {row["id"] for row in cur.fetchall() if row["id"]}
+
+        cur.execute("""
+            SELECT DISTINCT a.id
+            FROM movimientos m
+            JOIN movimientos_auditores ma ON ma.movimiento_id = m.id
+            JOIN auditores a ON a.id = ma.auditor_id
+            WHERE m.fecha_solicitud = ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
+        """, (fecha_txt,))
+        ocupados.update({row["id"] for row in cur.fetchall() if row["id"]})
+
+        cur.execute("""
+            SELECT DISTINCT a.id
+            FROM prestamos_vehiculos p
+            JOIN auditores a
+              ON LOWER(TRIM(a.nombre)) = LOWER(TRIM(COALESCE(p.responsable_nombre, '')))
+            WHERE p.estado IN ('PENDIENTE', 'VALIDADO')
+              AND (
+                (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+                OR p.fecha_solicitud = ?
+              )
+        """, (fecha_txt, fecha_txt))
+        ocupados.update({row["id"] for row in cur.fetchall() if row["id"]})
+
+        cur.execute("""
+            SELECT p.pasajeros_ids
+            FROM prestamos_vehiculos p
+            WHERE p.estado IN ('PENDIENTE', 'VALIDADO')
+              AND (
+                (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+                OR p.fecha_solicitud = ?
+              )
+        """, (fecha_txt, fecha_txt))
+        pasajeros_por_prestamo = cur.fetchall()
+        if pasajeros_por_prestamo:
+            cur.execute("SELECT id FROM auditores WHERE activo=1")
+            auditores_ids = {row["id"] for row in cur.fetchall()}
+            for row in pasajeros_por_prestamo:
+                pasajeros_txt = row["pasajeros_ids"] or ""
+                for raw_id in pasajeros_txt.split(","):
+                    raw_id = raw_id.strip()
+                    if not raw_id.isdigit():
+                        continue
+                    pid = int(raw_id)
+                    if pid in auditores_ids:
+                        ocupados.add(pid)
+        return ocupados
+
+    def _usuario_responsable_ocupado_cursor(
+        self,
+        cur,
+        usuario_id: int,
+        usuario_nombre: str,
+        fecha_txt: str,
+    ) -> bool:
+        cur.execute("""
+            SELECT 1
+            FROM movimientos m
+            WHERE m.responsable_id = ?
+              AND LOWER(TRIM(COALESCE(m.responsable_vehiculo, ''))) = LOWER(TRIM(?))
+              AND m.fecha_solicitud = ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
+            LIMIT 1
+        """, (usuario_id, usuario_nombre, fecha_txt))
+        if cur.fetchone():
+            return True
+        cur.execute("""
+            SELECT 1
+            FROM prestamos_vehiculos p
+            WHERE p.responsable_id = ?
+              AND LOWER(TRIM(COALESCE(p.responsable_nombre, ''))) = LOWER(TRIM(?))
+              AND p.estado IN ('PENDIENTE', 'VALIDADO')
+              AND (
+                (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+                OR p.fecha_solicitud = ?
+              )
+            LIMIT 1
+        """, (usuario_id, usuario_nombre, fecha_txt, fecha_txt))
+        return bool(cur.fetchone())
+
+    def obtener_auditores_ocupados(self, fecha_iso: Optional[str] = None) -> set:
+        fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
+        conn = self._connect()
+        cur = conn.cursor()
+        ocupados = self._obtener_auditores_ocupados_cursor(cur, fecha_txt)
+        conn.close()
+        return ocupados
+
+    def obtener_usuarios_responsables_ocupados(self, fecha_iso: Optional[str] = None) -> set:
+        fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT u.id
+            FROM movimientos m
+            JOIN usuarios u
+              ON u.id = m.responsable_id
+             AND LOWER(TRIM(u.nombre)) = LOWER(TRIM(COALESCE(m.responsable_vehiculo, '')))
+            WHERE m.fecha_solicitud = ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos_eventos me
+                  WHERE me.movimiento_id = m.id
+                    AND me.evento = 'RECHAZADO'
+              )
+        """, (fecha_txt,))
+        ocupados = {row["id"] for row in cur.fetchall() if row["id"]}
+
+        cur.execute("""
+            SELECT DISTINCT u.id
+            FROM prestamos_vehiculos p
+            JOIN usuarios u
+              ON u.id = p.responsable_id
+             AND LOWER(TRIM(u.nombre)) = LOWER(TRIM(COALESCE(p.responsable_nombre, '')))
+            WHERE p.estado IN ('PENDIENTE', 'VALIDADO')
+              AND (
+                (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+                OR p.fecha_solicitud = ?
+              )
+        """, (fecha_txt, fecha_txt))
+        ocupados.update({row["id"] for row in cur.fetchall() if row["id"]})
         conn.close()
         return ocupados
 
@@ -1291,6 +1473,14 @@ class DatabaseManager:
             conn.close()
             return False, "Responsable no encontrado."
         responsable_nombre, responsable_id_db = responsable_info
+        if responsable_tipo == "usuario" and self._usuario_responsable_ocupado_cursor(
+            cur,
+            int(responsable_usuario_id),
+            responsable_nombre,
+            fecha_reserva,
+        ):
+            conn.close()
+            return False, "El responsable ya esta asignado como piloto para esa fecha."
 
         pasajeros_ids = [int(pid) for pid in pasajeros_ids if pid]
         if responsable_tipo == "auditor" and responsable_usuario_id in pasajeros_ids:
@@ -1315,6 +1505,14 @@ class DatabaseManager:
         if no_pasajeros_int != len(pasajeros_ids):
             conn.close()
             return False, "El numero de pasajeros no coincide."
+        ocupados_auditores = self._obtener_auditores_ocupados_cursor(cur, fecha_reserva)
+        if responsable_tipo == "auditor" and responsable_usuario_id in ocupados_auditores:
+            conn.close()
+            return False, "El responsable ya esta asignado como piloto o pasajero para esa fecha."
+        for pasajero_id in pasajeros_ids:
+            if pasajero_id in ocupados_auditores:
+                conn.close()
+                return False, "Uno o mas pasajeros ya estan asignados como piloto o pasajero para esa fecha."
 
         destinos = [clave.strip().upper() for clave in ruta_destinos if clave and clave.strip()]
         if not destinos:
@@ -1425,7 +1623,7 @@ class DatabaseManager:
             row = cur.fetchone()
             if not row:
                 return None
-            return row["nombre"], None
+            return row["nombre"], row["id"]
         cur.execute("""
             SELECT id, nombre
             FROM usuarios
@@ -1525,6 +1723,14 @@ class DatabaseManager:
             conn.close()
             return False, {"mensaje": "Responsable no encontrado."}
         responsable_nombre, responsable_id_db = responsable_info
+        if responsable_tipo == "usuario" and self._usuario_responsable_ocupado_cursor(
+            cur,
+            int(responsable_usuario_id),
+            responsable_nombre,
+            fecha_solicitud,
+        ):
+            conn.close()
+            return False, {"mensaje": "El responsable ya esta asignado como piloto para esa fecha."}
 
         pasajeros_ids = [int(pid) for pid in pasajeros_ids if pid]
         if responsable_tipo == "auditor" and responsable_usuario_id in pasajeros_ids:
@@ -1550,6 +1756,14 @@ class DatabaseManager:
         if no_pasajeros_int != len(pasajeros_ids):
             conn.close()
             return False, {"mensaje": "El numero de pasajeros no coincide."}
+        ocupados_auditores = self._obtener_auditores_ocupados_cursor(cur, fecha_solicitud)
+        if responsable_tipo == "auditor" and responsable_usuario_id in ocupados_auditores:
+            conn.close()
+            return False, {"mensaje": "El responsable ya esta asignado como piloto o pasajero para esa fecha."}
+        for pasajero_id in pasajeros_ids:
+            if pasajero_id in ocupados_auditores:
+                conn.close()
+                return False, {"mensaje": "Uno o mas pasajeros ya estan asignados como piloto o pasajero para esa fecha."}
 
         destinos = [clave.strip().upper() for clave in ruta_destinos if clave and clave.strip()]
         if not destinos:
@@ -1646,6 +1860,12 @@ class DatabaseManager:
                    COALESCE(m.marca, v.marca) AS marca,
                    COALESCE(m.modelo, v.modelo) AS modelo,
                    COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
+                   COALESCE((
+                       SELECT group_concat(u3.nombre, ', ')
+                       FROM usuarios_vehiculos uv3
+                       JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                       WHERE uv3.vehiculo_id = v.id
+                   ), "") AS propietarios_nombres,
                    m.vehiculo_id, m.responsable_id,
                    m.no_pasajeros,
                    COALESCE((
@@ -1790,6 +2010,12 @@ class DatabaseManager:
                    COALESCE(m.marca, v.marca) AS marca,
                    COALESCE(m.modelo, v.modelo) AS modelo,
                    COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
+                   COALESCE((
+                       SELECT group_concat(u3.nombre, ', ')
+                       FROM usuarios_vehiculos uv3
+                       JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                       WHERE uv3.vehiculo_id = v.id
+                   ), "") AS propietarios_nombres,
                    m.vehiculo_id, m.responsable_id,
                    m.no_pasajeros,
                    COALESCE((
@@ -1882,6 +2108,7 @@ class DatabaseManager:
                 "marca": row["marca"],
                 "modelo": row["modelo"],
                 "responsable_vehiculo": row["responsable_nombre"],
+                "propietarios_nombres": row["propietario_nombre"],
                 "vehiculo_id": row["vehiculo_id"],
                 "responsable_id": row["responsable_id"],
                 "no_pasajeros": row["no_pasajeros"],

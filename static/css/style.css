@@ -1125,15 +1125,19 @@ textarea {
 }
 
 @media print {
+  :root {
+    --print-side-gap: 5mm;
+  }
+
   @page {
-    size: letter portrait;
+    size: letter;
     margin: 4mm;
   }
 
   html,
   body {
-    width: 8.5in;
-    height: 11in;
+    width: auto;
+    height: auto;
     margin: 0;
     background: #ffffff;
     color: #000000;
@@ -1147,11 +1151,22 @@ textarea {
     display: none !important;
   }
 
+  .page,
   .content,
   .content-inner {
+    width: 100%;
+    max-width: none;
     padding: 0;
     margin: 0;
-    height: 100%;
+  }
+
+  .content,
+  .content-inner {
+    height: auto;
+  }
+
+  .content-inner {
+    display: block;
   }
 
   .content-inner > * {
@@ -1160,7 +1175,8 @@ textarea {
 
   .content-inner > .report {
     display: block !important;
-    height: 100%;
+    height: auto;
+    min-height: 0;
   }
 
   .report {
@@ -1168,12 +1184,21 @@ textarea {
     flex-direction: column;
     box-shadow: none;
     border: none;
-    width: 100%;
-    max-width: 100%;
+    width: calc(100% - (var(--print-side-gap) * 2));
+    max-width: calc(100% - (var(--print-side-gap) * 2));
     page-break-after: avoid;
     page-break-inside: avoid;
-    height: 100%;
-    min-height: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 0 !important;
+    margin: 0 var(--print-side-gap);
+  }
+
+  .report-fit-print {
+    --print-fit-scale: 1;
+    transform-origin: top left;
+    transform: scale(var(--print-fit-scale));
+    width: calc(100% / var(--print-fit-scale));
   }
 
   .report-actions {
@@ -1246,7 +1271,7 @@ textarea {
     border-collapse: collapse;
     font-size: 5.2pt;
     table-layout: fixed;
-    margin: 4px auto 6px;
+    margin: 4px 0 6px;
     page-break-inside: avoid;
   }
 
@@ -1262,8 +1287,9 @@ textarea {
     display: table-cell;
     padding: 3px 5px;
     border: 1px solid #000000;
-    vertical-align: top;
+    vertical-align: middle;
     word-break: break-word;
+    overflow-wrap: anywhere;
     line-height: 1.1;
     text-align: center;
   }
@@ -1401,12 +1427,11 @@ textarea {
   }
 
   .signature {
-    margin-top: 10px;
-    margin-top: 6px;
+    margin-top: 18px;
   }
 
   .signature-line {
-    height: 18px;
+    height: 24px;
   }
 }
 

@@ -111,11 +111,19 @@
         <label class="full">
           Responsable del vehiculo
           <select name="responsable_usuario_id" id="responsable_usuario_id" required>
+            {% if resguardante_disponible %}
+            <option
+              value="{{ usuario_id }}"
+              {% if auditor_resguardante_id %}data-auditor-id="{{ auditor_resguardante_id }}"{% endif %}
+            >
+              {{ usuario }} (Resguardante)
+            </option>
+            {% endif %}
             {% if responsables %}
               {% for responsable in responsables %}
               <option value="auditor:{{ responsable.id }}">{{ responsable.nombre }}</option>
               {% endfor %}
-            {% else %}
+            {% elif not resguardante_disponible %}
               <option value="" disabled selected>No hay personal registrado</option>
             {% endif %}
           </select>
@@ -524,7 +532,7 @@
       return allOptions.filter(opt => {
         const isSelected = opt.selected;
         const label = (opt.dataset.nombre || opt.textContent).toLowerCase().trim();
-        if (excludeLabelFn && excludeLabelFn(label)) {
+        if (excludeLabelFn && excludeLabelFn(label, opt)) {
           return false;
         }
         const matchesSearch = label.includes(normalizedTerm);
@@ -665,7 +673,7 @@
       const syncExclusions = () => {
         Array.from(selectEl.selectedOptions).forEach((opt) => {
           const label = (opt.dataset.nombre || opt.textContent).toLowerCase().trim();
-          if (excludeLabelFn(label)) {
+          if (excludeLabelFn(label, opt)) {
             opt.selected = false;
           }
         });
@@ -688,9 +696,15 @@
     "pasajeros_chips",
     "pasajeros_count",
     noPasajerosInput,
-    (label) => {
-      const responsableLabel = responsableSelect?.selectedOptions?.[0]?.textContent?.toLowerCase().trim();
-      return Boolean(responsableLabel && label === responsableLabel);
+    (label, opt) => {
+      const selectedResponsable = responsableSelect?.selectedOptions?.[0] || null;
+      const responsableValue = responsableSelect?.value || "";
+      const responsableAuditorId = selectedResponsable?.dataset?.auditorId?.trim() || "";
+      const responsableId = responsableValue.startsWith("auditor:")
+        ? responsableValue.split(":")[1]?.trim()
+        : "";
+      const excludeId = responsableId || responsableAuditorId;
+      return Boolean(excludeId && opt?.value === excludeId);
     },
   );
   const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");

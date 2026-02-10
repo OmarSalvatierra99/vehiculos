@@ -48,11 +48,16 @@
   <div class="alert full">{{ error }}</div>
   {% endif %}
   {% if movimientos %}
-  <div class="table table-7">
+  <div class="table {% if rol == 'monitor' %}table-10{% else %}table-7{% endif %}">
     <div class="table-row header">
       <span>Folio</span>
       <span>Unidad</span>
       <span>Solicitante</span>
+      {% if rol == "monitor" %}
+      <span>Responsable</span>
+      <span>Asignado a</span>
+      <span>Tipo</span>
+      {% endif %}
       <span>{% if rol == "monitor" %}Control{% else %}Solicitud{% endif %}</span>
       <span>Entrega</span>
       <span>Estatus</span>
@@ -63,6 +68,11 @@
       <span class="mono">{{ mov.data.folio }}</span>
       <span>{{ mov.data.placa_unidad }}</span>
       <span>{{ mov.data.usuario_nombre }}</span>
+      {% if rol == "monitor" %}
+      <span>{{ mov.data.responsable_vehiculo or 'Sin responsable' }}</span>
+      <span>{{ mov.data.propietarios_nombres or mov.data.resguardante_nombre or 'Sin asignacion' }}</span>
+      <span>{% if mov.data.tipo == "prestamo" %}Prestamo{% else %}Solicitud{% endif %}</span>
+      {% endif %}
       <span>{{ mov.data.fecha_solicitud }}</span>
       <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>
       <span>
@@ -130,17 +140,23 @@
     <h2>Unidades registradas</h2>
     <p class="subtitle">Relacion oficial de placas activas.</p>
     {% if vehiculos %}
-    <div class="table table-3">
+    <div class="table {% if rol == 'monitor' %}table-4{% else %}table-3{% endif %}">
       <div class="table-row header">
         <span>Placa</span>
         <span>Modelo</span>
         <span>Marca</span>
+        {% if rol == "monitor" %}
+        <span>Asignado a</span>
+        {% endif %}
       </div>
       {% for vehiculo in vehiculos %}
       <div class="table-row">
         <span class="mono">{{ vehiculo.placa }}</span>
         <span>{{ vehiculo.modelo }}</span>
         <span>{{ vehiculo.marca }}</span>
+        {% if rol == "monitor" %}
+        <span>{{ vehiculo.propietarios_nombres or "Sin asignacion" }}</span>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

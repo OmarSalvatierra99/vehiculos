@@ -95,3 +95,55 @@
   {% endif %}
 </section>
 {% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const report = document.querySelector(".report");
+    if (!report) return;
+
+    const fitForPrint = () => {
+      report.classList.add("report-fit-print");
+      report.style.setProperty("--print-fit-scale", "1");
+
+      const pageWidth = window.innerWidth - 8;
+      const pageHeight = window.innerHeight - 8;
+      const reportWidth = report.scrollWidth;
+      const reportHeight = report.scrollHeight;
+
+      if (!reportWidth || !reportHeight) return;
+
+      const widthScale = pageWidth / reportWidth;
+      const heightScale = pageHeight / reportHeight;
+      const scale = Math.min(1, widthScale, heightScale);
+
+      report.style.setProperty("--print-fit-scale", String(Math.max(scale, 0.35)));
+    };
+
+    const clearPrintFit = () => {
+      report.classList.remove("report-fit-print");
+      report.style.removeProperty("--print-fit-scale");
+    };
+
+    window.addEventListener("beforeprint", fitForPrint);
+    window.addEventListener("afterprint", clearPrintFit);
+
+    if (window.matchMedia) {
+      const printMedia = window.matchMedia("print");
+      const handleChange = (event) => {
+        if (event.matches) {
+          fitForPrint();
+          return;
+        }
+        clearPrintFit();
+      };
+
+      if (printMedia.addEventListener) {
+        printMedia.addEventListener("change", handleChange);
+      } else if (printMedia.addListener) {
+        printMedia.addListener(handleChange);
+      }
+    }
+  })();
+</script>
+{% endblock %}
