@@ -697,14 +697,11 @@
     "pasajeros_count",
     noPasajerosInput,
     (label, opt) => {
-      const selectedResponsable = responsableSelect?.selectedOptions?.[0] || null;
       const responsableValue = responsableSelect?.value || "";
-      const responsableAuditorId = selectedResponsable?.dataset?.auditorId?.trim() || "";
       const responsableId = responsableValue.startsWith("auditor:")
         ? responsableValue.split(":")[1]?.trim()
         : "";
-      const excludeId = responsableId || responsableAuditorId;
-      return Boolean(excludeId && opt?.value === excludeId);
+      return Boolean(responsableId && opt?.value === responsableId);
     },
   );
   const rutaCombobox = setupCombobox("ruta_search", "ruta_dropdown", "ruta_destinos", "ruta_chips", "ruta_count");

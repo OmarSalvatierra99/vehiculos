@@ -48,7 +48,7 @@
   <div class="alert full">{{ error }}</div>
   {% endif %}
   {% if movimientos %}
-  <div class="table {% if rol == 'monitor' %}table-10{% else %}table-7{% endif %}">
+  <div class="table {% if rol == 'monitor' %}table-11{% else %}table-7{% endif %}">
     <div class="table-row header">
       <span>Folio</span>
       <span>Unidad</span>
@@ -57,6 +57,9 @@
       <span>Responsable</span>
       <span>Asignado a</span>
       <span>Tipo</span>
+      {% endif %}
+      {% if rol == "monitor" %}
+      <span>Solicitado</span>
       {% endif %}
       <span>{% if rol == "monitor" %}Control{% else %}Solicitud{% endif %}</span>
       <span>Entrega</span>
@@ -72,6 +75,15 @@
       <span>{{ mov.data.responsable_vehiculo or 'Sin responsable' }}</span>
       <span>{{ mov.data.propietarios_nombres or mov.data.resguardante_nombre or 'Sin asignacion' }}</span>
       <span>{% if mov.data.tipo == "prestamo" %}Prestamo{% else %}Solicitud{% endif %}</span>
+      {% endif %}
+      {% if rol == "monitor" %}
+      <span>
+        {% if mov.data.fecha_solicitud %}
+          {{ mov.data.fecha_solicitud }} {{ mov.data.hora_solicitud_mx or "--:--" }}
+        {% else %}
+          -
+        {% endif %}
+      </span>
       {% endif %}
       <span>{{ mov.data.fecha_solicitud }}</span>
       <span>{{ mov.data.fecha_entrega or "Pendiente" }}</span>

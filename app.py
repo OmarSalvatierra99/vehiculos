@@ -249,6 +249,9 @@ def _build_dashboard_context(
     fecha_solicitud: Optional[str] = None,
 ) -> dict:
     fecha_txt = _normalizar_fecha_solicitud(fecha_solicitud)
+    # Garantiza que el usuario actual exista en el catalogo de auditores
+    # para poder seleccionarlo como responsable o pasajero.
+    db_manager.asegurar_auditor_usuario(usuario_id)
     usuario_actual = (session.get("usuario") or "").strip().lower()
     if usuario_actual in {"mike", "ramos"}:
         omar_id = db_manager.obtener_usuario_id("omar")

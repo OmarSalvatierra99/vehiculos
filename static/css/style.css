@@ -780,6 +780,10 @@ textarea {
   grid-template-columns: repeat(10, minmax(0, 1fr));
 }
 
+.table-11 .table-row {
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+}
+
 .table-row.header {
   background: #ede7dc;
   font-weight: 700;

@@ -10,9 +10,14 @@ import sqlite3
 import time
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
 
 logger = logging.getLogger("INVENTARIOS")
 
@@ -53,6 +58,37 @@ def _parse_date(valor: Optional[str]) -> Optional[str]:
 
 def _hoy_iso() -> str:
     return datetime.now().strftime("%Y-%m-%d")
+
+
+def _hora_mexico_desde_created_at(created_at: Optional[str]) -> str:
+    if not created_at:
+        return "-"
+
+    texto = str(created_at).strip()
+    if not texto:
+        return "-"
+
+    formatos = (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+    )
+    dt = None
+    for fmt in formatos:
+        try:
+            dt = datetime.strptime(texto, fmt)
+            break
+        except ValueError:
+            continue
+    if dt is None:
+        return "-"
+
+    # CURRENT_TIMESTAMP en SQLite se guarda en UTC.
+    dt_utc = dt.replace(tzinfo=timezone.utc)
+    if ZoneInfo is None:
+        return dt_utc.strftime("%H:%M")
+    return dt_utc.astimezone(ZoneInfo("America/Mexico_City")).strftime("%H:%M")
 
 
 def _limites_dias_habiles(base: Optional[date] = None) -> Tuple[date, date]:
@@ -746,6 +782,48 @@ class DatabaseManager:
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
         return data
+
+    def asegurar_auditor_usuario(self, usuario_id: int) -> Optional[int]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT nombre
+            FROM usuarios
+            WHERE id=? AND activo=1
+        """, (usuario_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        nombre_usuario = (row["nombre"] or "").strip()
+        if not nombre_usuario:
+            conn.close()
+            return None
+
+        cur.execute("""
+            SELECT id, activo
+            FROM auditores
+            WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))
+            LIMIT 1
+        """, (nombre_usuario,))
+        auditor = cur.fetchone()
+        if auditor:
+            if int(auditor["activo"] or 0) != 1:
+                cur.execute("UPDATE auditores SET activo=1 WHERE id=?", (auditor["id"],))
+                conn.commit()
+            auditor_id = int(auditor["id"])
+            conn.close()
+            return auditor_id
+
+        cur.execute("""
+            INSERT INTO auditores (nombre, activo)
+            VALUES (?, 1)
+        """, (nombre_usuario,))
+        auditor_id = int(cur.lastrowid)
+        conn.commit()
+        conn.close()
+        return auditor_id
 
     def listar_personal_resguardante(self, usuario_id: int) -> List[Dict]:
         auditores = self.listar_auditores_por_usuario(usuario_id)
@@ -1853,6 +1931,7 @@ class DatabaseManager:
         cur = conn.cursor()
         q = """
             SELECT m.id, m.folio, m.ente_clave, m.fecha_solicitud,
+                   m.created_at,
                    m.fecha_entrega, m.fecha_devolucion, m.cantidad,
                    m.receptor_nombre, m.firma_recepcion,
                    m.devuelto, m.observaciones, m.resguardante_nombre,
@@ -1916,6 +1995,7 @@ class DatabaseManager:
         data = [dict(r) for r in cur.fetchall()]
         for mov in data:
             mov["tipo"] = "movimiento"
+            mov["hora_solicitud_mx"] = _hora_mexico_desde_created_at(mov.get("created_at"))
 
         if not usuario_id:
             cur.execute("""
@@ -1948,6 +2028,7 @@ class DatabaseManager:
                     "folio": f"PRE-{row['id']}",
                     "ente_clave": None,
                     "fecha_solicitud": fecha_prestamo,
+                    "created_at": None,
                     "fecha_entrega": fecha_prestamo if estado == "VALIDADO" else None,
                     "fecha_devolucion": None,
                     "cantidad": 1,
@@ -1972,6 +2053,7 @@ class DatabaseManager:
                     "usuario_nombre": row["solicitante_nombre"],
                     "tipo": "prestamo",
                     "estado": estado,
+                    "hora_solicitud_mx": "-",
                 })
 
         conn.close()
@@ -2003,6 +2085,7 @@ class DatabaseManager:
         cur = conn.cursor()
         q = f"""
             SELECT m.id, m.folio, m.ente_clave, m.fecha_solicitud,
+                   m.created_at,
                    m.fecha_entrega, m.fecha_devolucion, m.cantidad,
                    m.receptor_nombre, m.firma_recepcion,
                    m.devuelto, m.observaciones, m.resguardante_nombre,
@@ -2063,6 +2146,7 @@ class DatabaseManager:
         data = [dict(r) for r in cur.fetchall()]
         for mov in data:
             mov["tipo"] = "movimiento"
+            mov["hora_solicitud_mx"] = _hora_mexico_desde_created_at(mov.get("created_at"))
 
         cur.execute(f"""
             SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
@@ -2095,6 +2179,7 @@ class DatabaseManager:
                 "folio": f"PRE-{row['id']}",
                 "ente_clave": None,
                 "fecha_solicitud": fecha_prestamo,
+                "created_at": None,
                 "fecha_entrega": fecha_prestamo if estado == "VALIDADO" else None,
                 "fecha_devolucion": None,
                 "cantidad": 1,
@@ -2120,6 +2205,7 @@ class DatabaseManager:
                 "usuario_nombre": row["solicitante_nombre"],
                 "tipo": "prestamo",
                 "estado": estado,
+                "hora_solicitud_mx": "-",
             })
 
         conn.close()
