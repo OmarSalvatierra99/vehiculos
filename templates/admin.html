@@ -38,9 +38,19 @@
       <h2>Movimientos y reportes</h2>
       <p class="subtitle">Seguimiento de estatus y generacion de reportes.</p>
     </div>
-    {% if rol == "monitor" %}
+    <form method="get" action="{{ url_for('admin') }}" class="actions-inline">
+      <label>
+        <span>Fecha</span>
+        <input class="date-input" type="date" name="fecha" value="{{ fecha_consulta or '' }}">
+      </label>
+      <button class="btn ghost" type="submit">Filtrar</button>
+      {% if fecha_consulta %}
+      <a class="btn ghost" href="{{ url_for('admin') }}">Limpiar</a>
+      {% endif %}
+    </form>
+    {% if rol in ["monitor", "admin"] %}
     <div class="actions-inline">
-      <a class="btn ghost" href="{{ url_for('reporte_diario') }}">Reportes</a>
+      <a class="btn ghost" href="{{ url_for('reporte_diario', fecha=fecha_consulta) if fecha_consulta else url_for('reporte_diario') }}">Reportes</a>
     </div>
     {% endif %}
   </div>
@@ -64,7 +74,7 @@
       <span>{% if rol == "monitor" %}Control{% else %}Solicitud{% endif %}</span>
       <span>Entrega</span>
       <span>Estatus</span>
-      <span>{% if rol == "monitor" %}Validar{% else %}Reporte{% endif %}</span>
+      <span>{% if rol in ["monitor", "admin"] %}Acciones{% else %}Reporte{% endif %}</span>
     </div>
     {% for mov in movimientos %}
     <div class="table-row">
@@ -111,9 +121,11 @@
               <span class="badge success">Validado</span>
             {% else %}
               <form method="post" action="{{ url_for('prestamos_validar', prestamo_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
                 <button class="btn ghost btn-small" type="submit">Validar</button>
               </form>
               <form method="post" action="{{ url_for('prestamos_rechazar', prestamo_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
                 <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
               </form>
             {% endif %}
@@ -124,18 +136,47 @@
               <span class="badge success">Validado</span>
             {% else %}
               <form method="post" action="{{ url_for('movimientos_entregar', mov_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
                 <button class="btn ghost btn-small" type="submit">Validar</button>
               </form>
               <form method="post" action="{{ url_for('movimientos_rechazar', mov_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
                 <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
               </form>
             {% endif %}
           {% endif %}
         {% else %}
           {% if mov.data.tipo == "prestamo" %}
-            <span class="badge">Prestamo</span>
+            {% if mov.data.rechazado %}
+              <span class="badge danger">Rechazado</span>
+            {% elif mov.data.fecha_entrega %}
+              <span class="badge success">Validado</span>
+            {% else %}
+              <form method="post" action="{{ url_for('prestamos_validar', prestamo_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+                <button class="btn ghost btn-small" type="submit">Validar</button>
+              </form>
+              <form method="post" action="{{ url_for('prestamos_rechazar', prestamo_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+                <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
+              </form>
+            {% endif %}
           {% else %}
-            <a class="btn ghost" href="{{ url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+            {% if mov.data.rechazado %}
+              <span class="badge danger">Rechazado</span>
+            {% elif mov.data.fecha_entrega %}
+              <span class="badge success">Validado</span>
+              <a class="btn ghost btn-small" href="{{ url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+            {% else %}
+              <form method="post" action="{{ url_for('movimientos_entregar', mov_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+                <button class="btn ghost btn-small" type="submit">Validar</button>
+              </form>
+              <form method="post" action="{{ url_for('movimientos_rechazar', mov_id=mov.data.id) }}">
+                <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+                <button class="btn danger btn-small" type="submit" onclick="return confirm('Confirmar rechazo?')">Rechazar</button>
+              </form>
+            {% endif %}
           {% endif %}
         {% endif %}
       </span>

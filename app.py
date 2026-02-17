@@ -196,6 +196,20 @@ def _filtrar_movimientos_hoy(movimientos: List[dict], hoy: Optional[date] = None
     return filtrados
 
 
+def _fecha_referencia_registros(fecha_txt: Optional[str] = None) -> date:
+    if fecha_txt:
+        try:
+            return datetime.strptime(fecha_txt, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    base = date.today()
+    if base.weekday() == 5:  # Sabado
+        return base + timedelta(days=2)
+    if base.weekday() == 6:  # Domingo
+        return base + timedelta(days=1)
+    return base
+
+
 def _limites_semana_laboral(base: Optional[date] = None, total: int = 5) -> Tuple[date, date]:
     hoy = base or date.today()
     inicio = hoy
@@ -249,6 +263,7 @@ def _build_dashboard_context(
     fecha_solicitud: Optional[str] = None,
 ) -> dict:
     fecha_txt = _normalizar_fecha_solicitud(fecha_solicitud)
+    fecha_referencia = _fecha_referencia_registros(fecha_solicitud)
     # Garantiza que el usuario actual exista en el catalogo de auditores
     # para poder seleccionarlo como responsable o pasajero.
     db_manager.asegurar_auditor_usuario(usuario_id)
@@ -308,7 +323,8 @@ def _build_dashboard_context(
     entes = db_manager.listar_entes()
     vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id)
     movimientos = _filtrar_movimientos_hoy(
-        db_manager.listar_movimientos(usuario_id=usuario_id)
+        db_manager.listar_movimientos(usuario_id=usuario_id),
+        fecha_referencia,
     )
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
@@ -331,13 +347,30 @@ def _build_dashboard_context(
         "fecha_max": _limites_semana_laboral()[1].isoformat(),
         "fechas_habiles": _proximos_dias_habiles(),
         "fecha_solicitud": fecha_txt,
+        "fecha_referencia_registros": fecha_referencia.isoformat(),
     }
 
 
-def _build_admin_context(app: Flask, db_manager: DatabaseManager, rol: Optional[str] = None) -> dict:
+def _build_admin_context(
+    app: Flask,
+    db_manager: DatabaseManager,
+    rol: Optional[str] = None,
+    fecha_consulta: Optional[str] = None,
+) -> dict:
     movimientos = db_manager.listar_movimientos()
-    if rol == "monitor":
-        movimientos = _filtrar_movimientos_hoy(movimientos)
+    fecha_filtro = ""
+    if fecha_consulta:
+        fecha_filtro = _fecha_referencia_registros(fecha_consulta).isoformat()
+        movimientos = _filtrar_movimientos_hoy(
+            movimientos,
+            _fecha_referencia_registros(fecha_consulta),
+        )
+    elif rol == "monitor":
+        fecha_filtro = _fecha_referencia_registros().isoformat()
+        movimientos = _filtrar_movimientos_hoy(
+            movimientos,
+            _fecha_referencia_registros(),
+        )
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
         app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
@@ -366,6 +399,7 @@ def _build_admin_context(app: Flask, db_manager: DatabaseManager, rol: Optional[
         "movimientos_pendientes": pendientes,
         "movimientos_alerta": total_alertas,
         "today": date.today().isoformat(),
+        "fecha_consulta": fecha_filtro,
     }
 
 
@@ -436,7 +470,8 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         context["solicitudes_bloqueadas"] = _solicitudes_bloqueadas(session.get("usuario"))
         if _es_visor_omar(session.get("usuario")):
             context["movimientos_usuarios_observados"] = _filtrar_movimientos_hoy(
-                db_manager.listar_movimientos_por_usuarios(["ramos", "mike"])
+                db_manager.listar_movimientos_por_usuarios(["ramos", "mike"]),
+                _fecha_referencia_registros(fecha),
             )
         return render_template(
             "dashboard.html",
@@ -449,7 +484,12 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     def admin():
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
-        context = _build_admin_context(app, db_manager, session.get("rol"))
+        context = _build_admin_context(
+            app,
+            db_manager,
+            session.get("rol"),
+            request.args.get("fecha"),
+        )
         return render_template(
             "admin.html",
             usuario=session.get("nombre"),
@@ -460,6 +500,12 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     @app.route("/monitoreo")
     def monitoreo():
         return redirect(url_for("admin"))
+
+    def _redirect_admin_con_fecha(fecha_txt: Optional[str] = None):
+        fecha_raw = (fecha_txt or "").strip()
+        if not fecha_raw:
+            return redirect(url_for("admin"))
+        return redirect(url_for("admin", fecha=_normalizar_fecha_solicitud(fecha_raw)))
 
     @app.route("/solicitar", methods=["POST"])
     def solicitar():
@@ -770,6 +816,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     def movimientos_entregar(mov_id: int):
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
+        fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_entregado(mov_id, session.get("usuario_id"))
         if not ok:
             return render_template(
@@ -777,14 +824,15 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager, session.get("rol")),
+                **_build_admin_context(app, db_manager, session.get("rol"), fecha),
             )
-        return redirect(url_for("admin"))
+        return _redirect_admin_con_fecha(fecha)
 
     @app.route("/movimientos/<int:mov_id>/rechazar", methods=["POST"])
     def movimientos_rechazar(mov_id: int):
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
+        fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_rechazado(mov_id, session.get("usuario_id"))
         if not ok:
             return render_template(
@@ -792,14 +840,15 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager, session.get("rol")),
+                **_build_admin_context(app, db_manager, session.get("rol"), fecha),
             )
-        return redirect(url_for("admin"))
+        return _redirect_admin_con_fecha(fecha)
 
     @app.route("/prestamos/<int:prestamo_id>/validar", methods=["POST"])
     def prestamos_validar(prestamo_id: int):
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
+        fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_prestamo_validado(prestamo_id, session.get("usuario_id"))
         if not ok:
             return render_template(
@@ -807,14 +856,15 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager, session.get("rol")),
+                **_build_admin_context(app, db_manager, session.get("rol"), fecha),
             )
-        return redirect(url_for("admin"))
+        return _redirect_admin_con_fecha(fecha)
 
     @app.route("/prestamos/<int:prestamo_id>/rechazar", methods=["POST"])
     def prestamos_rechazar(prestamo_id: int):
         if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
+        fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_prestamo_rechazado(prestamo_id, session.get("usuario_id"))
         if not ok:
             return render_template(
@@ -822,14 +872,15 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager, session.get("rol")),
+                **_build_admin_context(app, db_manager, session.get("rol"), fecha),
             )
-        return redirect(url_for("admin"))
+        return _redirect_admin_con_fecha(fecha)
 
     @app.route("/movimientos/<int:mov_id>/devolver", methods=["POST"])
     def movimientos_devolver(mov_id: int):
         if session.get("rol") != "admin":
             return redirect(url_for("dashboard"))
+        fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_devuelto(mov_id, session.get("usuario_id"))
         if not ok:
             return render_template(
@@ -837,9 +888,9 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 usuario=session.get("nombre"),
                 rol=session.get("rol"),
                 error=mensaje,
-                **_build_admin_context(app, db_manager, session.get("rol")),
+                **_build_admin_context(app, db_manager, session.get("rol"), fecha),
             )
-        return redirect(url_for("admin"))
+        return _redirect_admin_con_fecha(fecha)
 
     @app.route("/health")
     def health_check():
@@ -868,8 +919,8 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     def reporte_diario():
         if not session.get("autenticado"):
             return redirect(url_for("login"))
-        if session.get("rol") != "monitor":
-            return redirect(url_for("admin"))
+        if session.get("rol") not in {"monitor", "admin"}:
+            return redirect(url_for("dashboard"))
         fecha = _normalizar_fecha_solicitud(request.args.get("fecha"))
         movimientos = db_manager.listar_movimientos_entregados(
             session.get("usuario_id"),
