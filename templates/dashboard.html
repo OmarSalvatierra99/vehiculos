@@ -74,6 +74,8 @@
               {% for vehiculo in vehiculos_prestables %}
               <option value="{{ vehiculo.id }}:{{ vehiculo.propietario_id }}"
                 data-scope="prestamo"
+                data-marca="{{ vehiculo.marca }}"
+                data-modelo="{{ vehiculo.modelo }}"
                 data-placa="{{ vehiculo.placa }}"
                 data-privado="true">
                 {{ vehiculo.placa }}
@@ -341,14 +343,13 @@
       return;
     }
     unidadPlaca.textContent = selected.dataset.placa || "Unidad seleccionada";
-    if (selected.dataset.privado === "true") {
-      unidadModelo.textContent = "-";
-      unidadPropietario.textContent = "-";
-      return;
-    }
     const marca = selected.dataset.marca || "-";
     const modelo = selected.dataset.modelo || "-";
     unidadModelo.textContent = `${marca} ${modelo}`.trim();
+    if (selected.dataset.privado === "true") {
+      unidadPropietario.textContent = "-";
+      return;
+    }
     unidadPropietario.textContent = selected.dataset.propietario || "-";
   };
 

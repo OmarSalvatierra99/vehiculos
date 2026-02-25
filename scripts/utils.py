@@ -12,7 +12,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 try:
     from zoneinfo import ZoneInfo
@@ -58,6 +58,12 @@ def _parse_date(valor: Optional[str]) -> Optional[str]:
 
 def _hoy_iso() -> str:
     return datetime.now().strftime("%Y-%m-%d")
+
+
+def _split_ruta_destino(ruta_destino: Optional[str]) -> List[str]:
+    if not ruta_destino:
+        return []
+    return [token.strip() for token in re.split(r"\s*(?:->|,)\s*", str(ruta_destino)) if token.strip()]
 
 
 def _hora_mexico_desde_created_at(created_at: Optional[str]) -> str:
@@ -1384,6 +1390,38 @@ class DatabaseManager:
         """, (usuario_id, usuario_nombre, fecha_txt, fecha_txt))
         return bool(cur.fetchone())
 
+    def _formatear_ruta_destino_con_entes_cursor(self, cur, ruta_destino: Optional[str]) -> str:
+        destinos = _split_ruta_destino(ruta_destino)
+        if not destinos:
+            return (ruta_destino or "").strip()
+        cur.execute("""
+            SELECT clave, nombre
+            FROM entes
+            WHERE activo=1
+        """)
+        mapa_entes = {
+            str(row["clave"]).upper(): (row["nombre"] or "").strip()
+            for row in cur.fetchall()
+            if row["clave"]
+        }
+        destinos_legibles: List[str] = []
+        for destino in destinos:
+            destino_upper = destino.strip().upper()
+            clave_normalizada = _normalizar_clave(destino)
+            clave = None
+            if destino_upper in mapa_entes:
+                clave = destino_upper
+            elif clave_normalizada in mapa_entes:
+                clave = clave_normalizada
+            if clave:
+                if clave == "CCLET":
+                    destinos_legibles.append("CCLET")
+                else:
+                    destinos_legibles.append(mapa_entes.get(clave) or destino.replace("_", " "))
+            else:
+                destinos_legibles.append(destino.replace("_", " "))
+        return " -> ".join(destinos_legibles)
+
     def obtener_auditores_ocupados(self, fecha_iso: Optional[str] = None) -> set:
         fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
         conn = self._connect()
@@ -1598,14 +1636,18 @@ class DatabaseManager:
             return False, "Falta el dato de ruta."
         placeholders_dest = ",".join(["?"] * len(destinos))
         cur.execute(f"""
-            SELECT clave
+            SELECT clave, nombre
             FROM entes
             WHERE clave IN ({placeholders_dest}) AND activo=1
         """, destinos)
-        entes_validos = {row["clave"] for row in cur.fetchall()}
-        if entes_validos != set(destinos):
+        entes_validos_map = {row["clave"]: row["nombre"] for row in cur.fetchall()}
+        if set(entes_validos_map.keys()) != set(destinos):
             conn.close()
             return False, "Destinos no encontrados en catalogo de entes."
+        destinos_legibles = [
+            "CCLET" if clave == "CCLET" else (entes_validos_map.get(clave) or clave.replace("_", " "))
+            for clave in destinos
+        ]
 
         cur.execute("""
             SELECT COUNT(*) AS total
@@ -1631,7 +1673,7 @@ class DatabaseManager:
             responsable_nombre,
             int(no_pasajeros_int),
             ",".join([str(pid) for pid in pasajeros_ids]) if pasajeros_ids else None,
-            " -> ".join(destinos),
+            " -> ".join(destinos_legibles),
             motivo_salida.strip(),
             fechas_txt,
         ))
@@ -2046,7 +2088,7 @@ class DatabaseManager:
                     "responsable_id": row["responsable_id"],
                     "no_pasajeros": row["no_pasajeros"],
                     "pasajeros_nombres": "",
-                    "ruta_destino": row["ruta_destino"],
+                    "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
                     "motivo_salida": row["motivo_salida"],
                     "rechazado": 1 if estado == "RECHAZADO" else 0,
                     "ente_nombre": None,
@@ -2198,7 +2240,7 @@ class DatabaseManager:
                 "responsable_id": row["responsable_id"],
                 "no_pasajeros": row["no_pasajeros"],
                 "pasajeros_nombres": "",
-                "ruta_destino": row["ruta_destino"],
+                "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
                 "motivo_salida": row["motivo_salida"],
                 "rechazado": 1 if estado == "RECHAZADO" else 0,
                 "ente_nombre": None,
@@ -2342,6 +2384,82 @@ class DatabaseManager:
             ORDER BY m.created_at DESC
         """, (fecha_iso,))
         data = [dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
+                   p.fecha_solicitud, p.estado, p.notas, p.fechas_solicitadas,
+                   p.responsable_id, p.responsable_nombre, p.no_pasajeros,
+                   p.pasajeros_ids, p.ruta_destino, p.motivo_salida,
+                   v.placa AS placa_unidad, v.marca, v.modelo,
+                   us.nombre AS solicitante_nombre,
+                   up.nombre AS propietario_nombre
+            FROM prestamos_vehiculos p
+            JOIN usuarios us ON us.id = p.solicitante_id
+            JOIN usuarios up ON up.id = p.propietario_id
+            LEFT JOIN vehiculos v ON v.id = p.vehiculo_id
+            WHERE p.estado = 'VALIDADO'
+              AND (
+                (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+                OR p.fecha_solicitud = ?
+              )
+            ORDER BY p.id DESC
+        """, (fecha_iso, fecha_iso))
+        prestamos_rows = [dict(r) for r in cur.fetchall()]
+        pasajeros_ids: Set[int] = set()
+        for row in prestamos_rows:
+            pasajeros_txt = row.get("pasajeros_ids") or ""
+            for raw_id in pasajeros_txt.split(","):
+                raw_id = raw_id.strip()
+                if raw_id.isdigit():
+                    pasajeros_ids.add(int(raw_id))
+        pasajeros_nombres_por_id: Dict[int, str] = {}
+        if pasajeros_ids:
+            placeholders = ",".join("?" for _ in pasajeros_ids)
+            cur.execute(
+                f"SELECT id, nombre FROM auditores WHERE id IN ({placeholders})",
+                tuple(sorted(pasajeros_ids)),
+            )
+            pasajeros_nombres_por_id = {
+                int(row["id"]): row["nombre"]
+                for row in cur.fetchall()
+                if row["id"]
+            }
+        for row in prestamos_rows:
+            nombres_pasajeros: List[str] = []
+            pasajeros_txt = row.get("pasajeros_ids") or ""
+            for raw_id in pasajeros_txt.split(","):
+                raw_id = raw_id.strip()
+                if not raw_id.isdigit():
+                    continue
+                nombre = pasajeros_nombres_por_id.get(int(raw_id))
+                if nombre:
+                    nombres_pasajeros.append(nombre)
+            data.append({
+                "id": row["id"],
+                "folio": f"PRE-{row['id']}",
+                "ente_clave": None,
+                "fecha_solicitud": fecha_iso,
+                "fecha_entrega": fecha_iso,
+                "fecha_devolucion": None,
+                "cantidad": 1,
+                "receptor_nombre": None,
+                "firma_recepcion": None,
+                "devuelto": 0,
+                "observaciones": row["notas"],
+                "resguardante_nombre": row["propietario_nombre"],
+                "placa_unidad": row["placa_unidad"],
+                "marca": row["marca"],
+                "modelo": row["modelo"],
+                "responsable_vehiculo": row["responsable_nombre"] or row["propietario_nombre"],
+                "vehiculo_id": row["vehiculo_id"],
+                "responsable_id": row["responsable_id"],
+                "no_pasajeros": row["no_pasajeros"],
+                "pasajeros_nombres": ", ".join(nombres_pasajeros),
+                "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
+                "motivo_salida": row["motivo_salida"],
+                "ente_nombre": None,
+                "usuario_nombre": row["solicitante_nombre"],
+                "tipo": "prestamo",
+            })
         conn.close()
         return data
 
