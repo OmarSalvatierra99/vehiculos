@@ -321,7 +321,7 @@ def _build_dashboard_context(
     if not auditores:
         auditores = auditores_ofs
     entes = db_manager.listar_entes()
-    vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id)
+    vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id, fecha_txt)
     movimientos = _filtrar_movimientos_hoy(
         db_manager.listar_movimientos(usuario_id=usuario_id),
         fecha_referencia,
@@ -706,7 +706,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
         if es_prestamo:
             fechas_prestamo = [fecha] if fecha else []
-            ok, mensaje = db_manager.solicitar_prestamo(
+            ok, resultado = db_manager.solicitar_prestamo(
                 session.get("usuario_id"),
                 int(propietario_id),
                 int(vehiculo_id),
@@ -719,15 +719,26 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 motivo,
                 notas,
             )
-            context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
-            return render_template(
-                "dashboard.html",
-                usuario=session.get("nombre"),
-                ok=mensaje if ok else None,
-                error=None if ok else mensaje,
-                tipo_solicitud=tipo_solicitud,
-                **context,
-            )
+            if not ok:
+                context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
+                return render_template(
+                    "dashboard.html",
+                    usuario=session.get("nombre"),
+                    error=resultado.get("mensaje") if isinstance(resultado, dict) else resultado,
+                    tipo_solicitud=tipo_solicitud,
+                    **context,
+                )
+            prestamo_id = resultado.get("prestamo_id") if isinstance(resultado, dict) else None
+            if not prestamo_id:
+                context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
+                return render_template(
+                    "dashboard.html",
+                    usuario=session.get("nombre"),
+                    error="No se pudo preparar el comprobante del prestamo.",
+                    tipo_solicitud=tipo_solicitud,
+                    **context,
+                )
+            return redirect(url_for("reporte_prestamo", prestamo_id=prestamo_id))
 
         vehiculos = db_manager.listar_vehiculos(usuario_id=session.get("usuario_id"))
         vehiculo = next(
@@ -904,6 +915,22 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         if not session.get("autenticado"):
             return redirect(url_for("login"))
         movimiento = db_manager.obtener_movimiento(mov_id)
+        if not movimiento:
+            return redirect(url_for("dashboard"))
+        can_print = session.get("rol") == "admin"
+        fecha_larga = _fecha_larga_es(movimiento.get("fecha_solicitud"))
+        return render_template(
+            "reporte.html",
+            movimiento=movimiento,
+            fecha_larga=fecha_larga,
+            can_print=can_print,
+        )
+
+    @app.route("/reporte/prestamo/<int:prestamo_id>")
+    def reporte_prestamo(prestamo_id: int):
+        if not session.get("autenticado"):
+            return redirect(url_for("login"))
+        movimiento = db_manager.obtener_prestamo(prestamo_id)
         if not movimiento:
             return redirect(url_for("dashboard"))
         can_print = session.get("rol") == "admin"

@@ -12,7 +12,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 try:
     from zoneinfo import ZoneInfo
@@ -37,6 +37,15 @@ def _normalizar_clave(valor: str) -> str:
     ascii_txt = ascii_txt.upper()
     ascii_txt = re.sub(r"[^A-Z0-9]+", "_", ascii_txt).strip("_")
     return ascii_txt
+
+
+def _clave_ente_canonica(valor: Optional[str]) -> str:
+    clave = _normalizar_clave(valor)
+    if not clave:
+        return ""
+    if clave in {"SM", "SMYT"} or "MOVILIDAD_Y_TRANSPORTE" in clave:
+        return ENTE_CLAVE_SM
+    return clave
 
 
 
@@ -98,14 +107,18 @@ def _hora_mexico_desde_created_at(created_at: Optional[str]) -> str:
 
 
 def _limites_dias_habiles(base: Optional[date] = None) -> Tuple[date, date]:
-    hoy = base or date.today()
-    if hoy.weekday() >= 4:
-        dias_hasta_lunes = (7 - hoy.weekday()) % 7
-        inicio = hoy + timedelta(days=dias_hasta_lunes)
-        fin = inicio + timedelta(days=3)
-        return inicio, fin
-    fin = hoy + timedelta(days=(4 - hoy.weekday()))
-    return hoy, fin
+    inicio = base or date.today()
+    if inicio.weekday() >= 5:
+        dias_hasta_lunes = (7 - inicio.weekday()) % 7
+        inicio = inicio + timedelta(days=dias_hasta_lunes)
+
+    fin = inicio
+    dias_contados = 1
+    while dias_contados < 5:
+        fin += timedelta(days=1)
+        if fin.weekday() < 5:
+            dias_contados += 1
+    return inicio, fin
 
 
 def _hash_password(clave: str) -> str:
@@ -254,6 +267,9 @@ MUNICIPIOS_MANUALES = [
     "CHIAUTEMPAN",
 ]
 
+ENTE_CLAVE_SM = "SMYT"
+ENTE_NOMBRE_SM = "Secretaría de Movilidad y Transporte (SMyT)"
+
 
 @dataclass
 class MovimientoRow:
@@ -271,6 +287,7 @@ class DatabaseManager:
         self._ensure_usuarios_columns()
         self._ensure_movimientos_columns()
         self._ensure_prestamos_columns()
+        self._normalizar_catalogo_entes()
         self._seed_usuarios()
         self._seed_vehiculos()
         self._seed_usuarios_vehiculos()
@@ -562,6 +579,81 @@ class DatabaseManager:
             if nombre not in existentes:
                 cur.execute(f"ALTER TABLE prestamos_vehiculos ADD COLUMN {nombre} {tipo}")
         conn.commit()
+        conn.close()
+
+    def _normalizar_catalogo_entes(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT id, clave
+            FROM entes
+            WHERE UPPER(clave) IN ('SM', 'SMYT')
+        """)
+        rows = cur.fetchall()
+        if rows:
+            sm_id = next((row["id"] for row in rows if (row["clave"] or "").upper() == "SM"), None)
+            smyt_id = next((row["id"] for row in rows if (row["clave"] or "").upper() == ENTE_CLAVE_SM), None)
+
+            cur.execute("""
+                UPDATE movimientos
+                SET ente_clave = ?
+                WHERE UPPER(COALESCE(ente_clave, '')) = 'SM'
+            """, (ENTE_CLAVE_SM,))
+            cur.execute("""
+                UPDATE movimientos_destinos
+                SET ente_clave = ?
+                WHERE UPPER(COALESCE(ente_clave, '')) = 'SM'
+            """, (ENTE_CLAVE_SM,))
+
+            cur.execute("""
+                UPDATE movimientos
+                SET ruta_destino = REPLACE(ruta_destino, 'Secretaría de Movilidad y Transporte (SM)', ?)
+                WHERE ruta_destino LIKE '%Secretaría de Movilidad y Transporte (SM)%'
+            """, (ENTE_NOMBRE_SM,))
+            cur.execute("""
+                UPDATE prestamos_vehiculos
+                SET ruta_destino = REPLACE(ruta_destino, 'Secretaría de Movilidad y Transporte (SM)', ?)
+                WHERE ruta_destino LIKE '%Secretaría de Movilidad y Transporte (SM)%'
+            """, (ENTE_NOMBRE_SM,))
+
+            cur.execute("""
+                SELECT id, entes
+                FROM usuarios
+                WHERE UPPER(COALESCE(entes, '')) LIKE '%SM%'
+            """)
+            for row in cur.fetchall():
+                tokens = [token.strip() for token in (row["entes"] or "").split(",") if token.strip()]
+                normalizados = []
+                for token in tokens:
+                    canonico = _clave_ente_canonica(token)
+                    if canonico not in normalizados:
+                        normalizados.append(canonico)
+                nuevo_valor = ",".join(normalizados) or "TODOS"
+                if nuevo_valor != (row["entes"] or ""):
+                    cur.execute("""
+                        UPDATE usuarios
+                        SET entes = ?
+                        WHERE id = ?
+                    """, (nuevo_valor, row["id"]))
+
+            if smyt_id:
+                cur.execute("""
+                    UPDATE entes
+                    SET nombre = ?, activo = 1
+                    WHERE id = ?
+                """, (ENTE_NOMBRE_SM, smyt_id))
+                if sm_id and sm_id != smyt_id:
+                    cur.execute("DELETE FROM entes WHERE id = ?", (sm_id,))
+            elif sm_id:
+                cur.execute("""
+                    UPDATE entes
+                    SET clave = ?, nombre = ?, activo = 1
+                    WHERE id = ?
+                """, (ENTE_CLAVE_SM, ENTE_NOMBRE_SM, sm_id))
+
+            conn.commit()
+
         conn.close()
 
     def _seed_usuarios(self):
@@ -1202,7 +1294,12 @@ class DatabaseManager:
         conn.close()
         return data
 
-    def listar_vehiculos_prestables(self, solicitante_id: int) -> List[Dict]:
+    def listar_vehiculos_prestables(
+        self,
+        solicitante_id: int,
+        fecha_iso: Optional[str] = None,
+    ) -> List[Dict]:
+        fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
@@ -1214,8 +1311,33 @@ class DatabaseManager:
             WHERE v.activo=1
               AND u.activo=1
               AND uv.usuario_id != ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos m
+                  WHERE m.vehiculo_id = v.id
+                    AND m.fecha_solicitud = ?
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM movimientos_eventos me
+                        WHERE me.movimiento_id = m.id
+                          AND me.evento = 'RECHAZADO'
+                    )
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM prestamos_vehiculos p
+                  WHERE p.vehiculo_id = v.id
+                    AND p.estado IN ('PENDIENTE', 'VALIDADO')
+                    AND (
+                        (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+                        OR (
+                            TRIM(COALESCE(p.fechas_solicitadas, '')) = ''
+                            AND p.fecha_solicitud = ?
+                        )
+                    )
+              )
             ORDER BY u.nombre, v.placa
-        """, (solicitante_id,))
+        """, (solicitante_id, fecha_txt, fecha_txt, fecha_txt))
         data = [dict(row) for row in cur.fetchall()]
         conn.close()
         return data
@@ -1407,7 +1529,7 @@ class DatabaseManager:
         destinos_legibles: List[str] = []
         for destino in destinos:
             destino_upper = destino.strip().upper()
-            clave_normalizada = _normalizar_clave(destino)
+            clave_normalizada = _clave_ente_canonica(destino)
             clave = None
             if destino_upper in mapa_entes:
                 clave = destino_upper
@@ -1480,7 +1602,7 @@ class DatabaseManager:
         motivo_salida: str,
         notas: Optional[str] = None,
         fecha_solicitud: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, Union[str, Dict[str, Any]]]:
         if solicitante_id == propietario_id:
             return False, "No puede solicitar un prestamo de su propio vehiculo."
 
@@ -1569,9 +1691,10 @@ class DatabaseManager:
             return False, "El vehiculo ya esta asignado para esa fecha."
 
         cur.execute("""
-            SELECT fechas_solicitadas
+            SELECT fecha_solicitud, fechas_solicitadas, estado
             FROM prestamos_vehiculos
-            WHERE vehiculo_id=? AND estado='PENDIENTE'
+            WHERE vehiculo_id=?
+              AND estado IN ('PENDIENTE', 'VALIDADO')
         """, (vehiculo_id,))
         for row in cur.fetchall():
             fechas_txt = row["fechas_solicitadas"] or ""
@@ -1580,8 +1703,14 @@ class DatabaseManager:
                 for fecha in fechas_txt.split(",")
                 if fecha.strip()
             }
+            fecha_registro = _parse_date(row["fecha_solicitud"])
+            if not fechas_reserva and fecha_registro:
+                fechas_reserva.add(fecha_registro)
             if fecha_reserva in fechas_reserva:
                 conn.close()
+                estado = (row["estado"] or "").upper()
+                if estado == "VALIDADO":
+                    return False, "El vehiculo ya tiene un prestamo validado para esa fecha."
                 return False, "El vehiculo ya tiene un prestamo pendiente para esa fecha."
 
         responsable_info = self._obtener_responsable(cur, responsable_tipo, responsable_usuario_id)
@@ -1630,7 +1759,7 @@ class DatabaseManager:
                 conn.close()
                 return False, "Uno o mas pasajeros ya estan asignados como piloto o pasajero para esa fecha."
 
-        destinos = [clave.strip().upper() for clave in ruta_destinos if clave and clave.strip()]
+        destinos = [_clave_ente_canonica(clave) for clave in ruta_destinos if clave and clave.strip()]
         if not destinos:
             conn.close()
             return False, "Falta el dato de ruta."
@@ -1677,9 +1806,13 @@ class DatabaseManager:
             motivo_salida.strip(),
             fechas_txt,
         ))
+        prestamo_id = cur.lastrowid
         conn.commit()
         conn.close()
-        return True, "Solicitud de prestamo registrada."
+        return True, {
+            "prestamo_id": prestamo_id,
+            "mensaje": "Solicitud de prestamo registrada.",
+        }
 
     def listar_responsables(self) -> List[Dict]:
         conn = self._connect()
@@ -1885,7 +2018,7 @@ class DatabaseManager:
                 conn.close()
                 return False, {"mensaje": "Uno o mas pasajeros ya estan asignados como piloto o pasajero para esa fecha."}
 
-        destinos = [clave.strip().upper() for clave in ruta_destinos if clave and clave.strip()]
+        destinos = [_clave_ente_canonica(clave) for clave in ruta_destinos if clave and clave.strip()]
         if not destinos:
             conn.close()
             return False, {"mensaje": "Falta el dato de ruta."}
@@ -2039,64 +2172,103 @@ class DatabaseManager:
             mov["tipo"] = "movimiento"
             mov["hora_solicitud_mx"] = _hora_mexico_desde_created_at(mov.get("created_at"))
 
-        if not usuario_id:
-            cur.execute("""
-                SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
-                       p.fecha_solicitud, p.estado, p.notas, p.fechas_solicitadas,
-                       p.responsable_id, p.responsable_nombre, p.no_pasajeros,
-                       p.ruta_destino, p.motivo_salida,
-                       v.placa AS placa_unidad, v.marca, v.modelo,
-                       us.nombre AS solicitante_nombre,
-                       up.nombre AS propietario_nombre
-                FROM prestamos_vehiculos p
-                JOIN usuarios us ON us.id = p.solicitante_id
-                JOIN usuarios up ON up.id = p.propietario_id
-                LEFT JOIN vehiculos v ON v.id = p.vehiculo_id
-                ORDER BY p.id DESC
-            """)
-            for row in cur.fetchall():
-                fechas_txt = row["fechas_solicitadas"] or ""
-                fecha_prestamo = ""
-                for item in fechas_txt.split(","):
-                    item = item.strip()
-                    if item:
-                        fecha_prestamo = item
-                        break
-                if not fecha_prestamo:
-                    fecha_prestamo = row["fecha_solicitud"]
-                estado = (row["estado"] or "").upper()
-                data.append({
-                    "id": row["id"],
-                    "folio": f"PRE-{row['id']}",
-                    "ente_clave": None,
-                    "fecha_solicitud": fecha_prestamo,
-                    "created_at": None,
-                    "fecha_entrega": fecha_prestamo if estado == "VALIDADO" else None,
-                    "fecha_devolucion": None,
-                    "cantidad": 1,
-                    "receptor_nombre": None,
-                    "firma_recepcion": None,
-                    "devuelto": 0,
-                    "observaciones": row["notas"],
-                    "resguardante_nombre": row["propietario_nombre"],
-                    "resguardante_id": row["propietario_id"],
-                    "placa_unidad": row["placa_unidad"],
-                    "marca": row["marca"],
-                    "modelo": row["modelo"],
-                    "responsable_vehiculo": row["responsable_nombre"],
-                    "vehiculo_id": row["vehiculo_id"],
-                    "responsable_id": row["responsable_id"],
-                    "no_pasajeros": row["no_pasajeros"],
-                    "pasajeros_nombres": "",
-                    "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
-                    "motivo_salida": row["motivo_salida"],
-                    "rechazado": 1 if estado == "RECHAZADO" else 0,
-                    "ente_nombre": None,
-                    "usuario_nombre": row["solicitante_nombre"],
-                    "tipo": "prestamo",
-                    "estado": estado,
-                    "hora_solicitud_mx": "-",
-                })
+        prestamos_q = """
+            SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
+                   p.fecha_solicitud, p.estado, p.notas, p.fechas_solicitadas,
+                   p.responsable_id, p.responsable_nombre, p.no_pasajeros,
+                   p.pasajeros_ids, p.ruta_destino, p.motivo_salida,
+                   v.placa AS placa_unidad, v.marca, v.modelo,
+                   us.nombre AS solicitante_nombre,
+                   up.nombre AS propietario_nombre
+            FROM prestamos_vehiculos p
+            JOIN usuarios us ON us.id = p.solicitante_id
+            JOIN usuarios up ON up.id = p.propietario_id
+            LEFT JOIN vehiculos v ON v.id = p.vehiculo_id
+        """
+        prestamos_params: Tuple[Union[int, str], ...] = ()
+        if usuario_id:
+            prestamos_q += " WHERE p.solicitante_id=?"
+            prestamos_params = (usuario_id,)
+        prestamos_q += " ORDER BY p.id DESC"
+        cur.execute(prestamos_q, prestamos_params)
+        prestamos_rows = [dict(r) for r in cur.fetchall()]
+
+        pasajeros_ids: Set[int] = set()
+        for row in prestamos_rows:
+            pasajeros_txt = row.get("pasajeros_ids") or ""
+            for raw_id in pasajeros_txt.split(","):
+                raw_id = raw_id.strip()
+                if raw_id.isdigit():
+                    pasajeros_ids.add(int(raw_id))
+
+        pasajeros_nombres_por_id: Dict[int, str] = {}
+        if pasajeros_ids:
+            placeholders = ",".join("?" for _ in pasajeros_ids)
+            cur.execute(
+                f"SELECT id, nombre FROM auditores WHERE id IN ({placeholders})",
+                tuple(sorted(pasajeros_ids)),
+            )
+            pasajeros_nombres_por_id = {
+                int(row["id"]): row["nombre"]
+                for row in cur.fetchall()
+                if row["id"]
+            }
+
+        for row in prestamos_rows:
+            fechas_txt = row["fechas_solicitadas"] or ""
+            fecha_prestamo = ""
+            for item in fechas_txt.split(","):
+                item = item.strip()
+                if item:
+                    fecha_prestamo = item
+                    break
+            if not fecha_prestamo:
+                fecha_prestamo = row["fecha_solicitud"]
+
+            nombres_pasajeros: List[str] = []
+            pasajeros_txt = row.get("pasajeros_ids") or ""
+            for raw_id in pasajeros_txt.split(","):
+                raw_id = raw_id.strip()
+                if not raw_id.isdigit():
+                    continue
+                nombre = pasajeros_nombres_por_id.get(int(raw_id))
+                if nombre:
+                    nombres_pasajeros.append(nombre)
+
+            estado = (row["estado"] or "").upper()
+            data.append({
+                "id": row["id"],
+                "folio": f"PRE-{row['id']}",
+                "ente_clave": None,
+                "fecha_solicitud": fecha_prestamo,
+                "created_at": None,
+                "fecha_entrega": fecha_prestamo if estado == "VALIDADO" else None,
+                "fecha_devolucion": None,
+                "cantidad": 1,
+                "receptor_nombre": None,
+                "firma_recepcion": None,
+                "devuelto": 0,
+                "observaciones": row["notas"],
+                "resguardante_nombre": row["propietario_nombre"],
+                "resguardante_id": row["propietario_id"],
+                "placa_unidad": row["placa_unidad"],
+                "marca": row["marca"],
+                "modelo": row["modelo"],
+                "responsable_vehiculo": row["responsable_nombre"] or row["propietario_nombre"],
+                "propietarios_nombres": row["propietario_nombre"],
+                "vehiculo_id": row["vehiculo_id"],
+                "responsable_id": row["responsable_id"],
+                "no_pasajeros": row["no_pasajeros"],
+                "pasajeros_nombres": ", ".join(nombres_pasajeros),
+                "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
+                "motivo_salida": row["motivo_salida"],
+                "rechazado": 1 if estado == "RECHAZADO" else 0,
+                "ente_nombre": None,
+                "usuario_nombre": row["solicitante_nombre"],
+                "tipo": "prestamo",
+                "estado": estado,
+                "hora_solicitud_mx": "-",
+            })
 
         conn.close()
         pendientes_por_vehiculo = {}
@@ -2515,6 +2687,90 @@ class DatabaseManager:
         row = cur.fetchone()
         conn.close()
         return dict(row) if row else None
+
+    def obtener_prestamo(self, prestamo_id: int) -> Optional[Dict]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
+                   p.fecha_solicitud, p.estado, p.notas, p.fechas_solicitadas,
+                   p.responsable_id, p.responsable_nombre, p.no_pasajeros,
+                   p.pasajeros_ids, p.ruta_destino, p.motivo_salida,
+                   v.placa AS placa_unidad, v.marca, v.modelo,
+                   us.nombre AS solicitante_nombre,
+                   up.nombre AS propietario_nombre
+            FROM prestamos_vehiculos p
+            JOIN usuarios us ON us.id = p.solicitante_id
+            JOIN usuarios up ON up.id = p.propietario_id
+            LEFT JOIN vehiculos v ON v.id = p.vehiculo_id
+            WHERE p.id = ?
+            LIMIT 1
+        """, (prestamo_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        fecha_prestamo = ""
+        for item in (row["fechas_solicitadas"] or "").split(","):
+            item = item.strip()
+            if item:
+                fecha_prestamo = item
+                break
+        if not fecha_prestamo:
+            fecha_prestamo = row["fecha_solicitud"]
+
+        pasajeros_ids = []
+        for raw_id in (row["pasajeros_ids"] or "").split(","):
+            raw_id = raw_id.strip()
+            if raw_id.isdigit():
+                pasajeros_ids.append(int(raw_id))
+
+        pasajeros_nombres: List[str] = []
+        if pasajeros_ids:
+            placeholders = ",".join("?" for _ in pasajeros_ids)
+            cur.execute(
+                f"""
+                    SELECT nombre
+                    FROM auditores
+                    WHERE id IN ({placeholders})
+                    ORDER BY nombre
+                """,
+                tuple(pasajeros_ids),
+            )
+            pasajeros_nombres = [row_nombre["nombre"] for row_nombre in cur.fetchall() if row_nombre["nombre"]]
+
+        data = {
+            "id": row["id"],
+            "folio": f"PRE-{row['id']}",
+            "ente_clave": None,
+            "fecha_solicitud": fecha_prestamo,
+            "fecha_entrega": fecha_prestamo if (row["estado"] or "").upper() == "VALIDADO" else None,
+            "fecha_devolucion": None,
+            "cantidad": 1,
+            "receptor_nombre": None,
+            "firma_recepcion": None,
+            "devuelto": 0,
+            "observaciones": row["notas"],
+            "resguardante_nombre": row["solicitante_nombre"],
+            "resguardante_id": row["solicitante_id"],
+            "placa_unidad": row["placa_unidad"],
+            "marca": row["marca"],
+            "modelo": row["modelo"],
+            "responsable_vehiculo": row["responsable_nombre"] or row["solicitante_nombre"],
+            "vehiculo_id": row["vehiculo_id"],
+            "responsable_id": row["responsable_id"],
+            "no_pasajeros": row["no_pasajeros"],
+            "pasajeros_nombres": ", ".join(pasajeros_nombres),
+            "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
+            "motivo_salida": row["motivo_salida"],
+            "usuario_nombre": row["solicitante_nombre"],
+            "propietario_nombre": row["propietario_nombre"],
+            "tipo": "prestamo",
+            "estado": (row["estado"] or "").upper(),
+        }
+        conn.close()
+        return data
 
     def marcar_entregado(self, movimiento_id: int, usuario_id: int) -> Tuple[bool, str]:
         conn = self._connect()

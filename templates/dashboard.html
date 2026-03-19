@@ -131,7 +131,7 @@
           </select>
         </label>
         <label>
-          No. de pasajeros
+          No. de acompañantes (sin conductor)
           <input type="number" name="no_pasajeros" id="no_pasajeros" inputmode="numeric" min="0" max="4" step="1" value="4" required>
         </label>
         <label class="full" id="pasajeros_label">
@@ -219,15 +219,16 @@
 
       <fieldset class="form-section">
         <legend>Solicitudes registradas</legend>
-        <p class="subtitle full">Vehiculos solicitados por ti con ruta, responsable y pasajeros</p>
+        <p class="subtitle full">Vehiculos solicitados por ti con ruta, responsable, pasajeros y estatus</p>
         {% if mis_movimientos %}
-        <div class="table table-5 full">
+        <div class="table table-6 full">
           <div class="table-row header">
             <span>Unidad</span>
             <span>Fecha solicitud</span>
             <span>Ruta</span>
             <span>Responsable</span>
             <span>Pasajeros</span>
+            <span>Estatus</span>
           </div>
           {% for mov in mis_movimientos %}
           <div class="table-row">
@@ -241,6 +242,27 @@
             <span>{{ mov.ruta_destino or 'Sin ruta' }}</span>
             <span>{{ mov.responsable_vehiculo or 'Sin responsable' }}</span>
             <span>{{ mov.pasajeros_nombres or 'Sin pasajeros' }}</span>
+            <span>
+              {% if mov.tipo == "prestamo" %}
+                {% if mov.estado == "RECHAZADO" %}
+                  Rechazado
+                {% elif mov.estado == "VALIDADO" %}
+                  Validado
+                {% else %}
+                  Pendiente
+                {% endif %}
+              {% else %}
+                {% if mov.rechazado %}
+                  Rechazado
+                {% elif mov.fecha_entrega %}
+                  Validado
+                {% elif mov.conflicto %}
+                  Conflicto
+                {% else %}
+                  Pendiente
+                {% endif %}
+              {% endif %}
+            </span>
           </div>
           {% endfor %}
         </div>
@@ -330,13 +352,14 @@
   const pasajerosSelect = document.getElementById("pasajeros_ids");
   const pasajerosSelectAll = document.getElementById("pasajeros_ids_all");
   const pasajerosSelectDefault = pasajerosSelect ? pasajerosSelect.cloneNode(true) : null;
+  const vehiculoEmptyOptionSelector = 'option[data-empty-option="true"]';
 
   const updateUnidadResumen = () => {
     if (!vehiculoSelect) {
       return;
     }
     const selected = vehiculoSelect.selectedOptions?.[0];
-    if (!selected) {
+    if (!selected || selected.dataset.emptyOption === "true") {
       unidadPlaca.textContent = "Seleccione una unidad";
       unidadModelo.textContent = "-";
       unidadPropietario.textContent = "-";
@@ -351,6 +374,23 @@
       return;
     }
     unidadPropietario.textContent = selected.dataset.propietario || "-";
+  };
+
+  const ensureVehiculoEmptyOption = (message) => {
+    if (!vehiculoSelect) {
+      return;
+    }
+    let emptyOption = vehiculoSelect.querySelector(vehiculoEmptyOptionSelector);
+    if (!emptyOption) {
+      emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.disabled = true;
+      emptyOption.dataset.emptyOption = "true";
+      vehiculoSelect.prepend(emptyOption);
+    }
+    emptyOption.textContent = message;
+    emptyOption.hidden = false;
+    emptyOption.selected = true;
   };
 
   const applyTipoFiltro = () => {
@@ -371,7 +411,13 @@
       submitBtn.textContent = esPrestamo ? "Registrar préstamo" : "Registrar solicitud";
     }
     if (vehiculoSelect) {
-      const options = Array.from(vehiculoSelect.options);
+      const emptyOption = vehiculoSelect.querySelector(vehiculoEmptyOptionSelector);
+      if (emptyOption) {
+        emptyOption.hidden = true;
+      }
+      const options = Array.from(vehiculoSelect.options).filter(
+        (opt) => opt.dataset.emptyOption !== "true",
+      );
       let selectedVisible = false;
       options.forEach((opt) => {
         const scope = opt.dataset.scope;
@@ -388,6 +434,12 @@
         const firstVisible = options.find(opt => !opt.hidden && !opt.disabled);
         if (firstVisible) {
           firstVisible.selected = true;
+        } else {
+          ensureVehiculoEmptyOption(
+            esPrestamo
+              ? "No hay unidades disponibles para préstamo"
+              : "No hay unidades disponibles",
+          );
         }
       }
     }
