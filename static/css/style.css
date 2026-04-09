@@ -867,6 +867,10 @@ textarea {
   color: #7a746b;
 }
 
+.is-disabled .combobox-container {
+  opacity: 0.6;
+}
+
 .empty {
   margin: 0;
   color: #7a746b;

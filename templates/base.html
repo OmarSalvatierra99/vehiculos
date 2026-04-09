@@ -31,13 +31,15 @@
             <span class="user-role">
               {% if session.get('rol') == 'admin' %}
                 ADMINISTRADOR
+              {% elif session.get('rol') == 'monitor' %}
+                MONITOR
               {% else %}
                 USUARIO
               {% endif %}
             </span>
           </div>
           <nav class="nav-links">
-            {% if session.get('rol') == 'admin' %}
+            {% if session.get('rol') in ['admin', 'monitor'] %}
             <a href="{{ url_for('admin') }}">Administracion</a>
             {% else %}
             <a href="{{ url_for('dashboard') }}">Solicitud</a>

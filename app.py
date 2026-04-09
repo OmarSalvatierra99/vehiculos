@@ -23,7 +23,7 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 
 from config import get_config
-from scripts.utils import DatabaseManager
+from scripts.utils import DatabaseManager, MOTIVOS_SALIDA_VALIDOS
 
 
 def create_app(config_name: str = None) -> Flask:
@@ -187,11 +187,22 @@ def _fecha_iso_desde_texto(fecha_txt: Optional[str]) -> Optional[str]:
         return None
 
 
-def _filtrar_movimientos_hoy(movimientos: List[dict], hoy: Optional[date] = None) -> List[dict]:
+def _filtrar_movimientos_hoy(
+    movimientos: List[dict],
+    hoy: Optional[date] = None,
+    incluir_prestamos_pendientes: bool = False,
+) -> List[dict]:
     hoy_iso = (hoy or date.today()).isoformat()
     filtrados = []
     for mov in movimientos:
         if _fecha_iso_desde_texto(mov.get("fecha_solicitud")) == hoy_iso:
+            filtrados.append(mov)
+            continue
+        if (
+            incluir_prestamos_pendientes
+            and mov.get("tipo") == "prestamo"
+            and (mov.get("estado") or "").strip().upper() == "PENDIENTE"
+        ):
             filtrados.append(mov)
     return filtrados
 
@@ -246,6 +257,30 @@ def _fecha_laboral_valida(fecha_txt: str) -> bool:
         return False
     inicio, fin = _limites_semana_laboral()
     return inicio <= fecha <= fin
+
+
+def _empty_emergencia_form() -> dict:
+    return {
+        "resguardante_nombre": "",
+        "vehiculo_id": "",
+        "responsable_auditor_id": "",
+        "no_pasajeros": "0",
+        "pasajeros_ids": [],
+        "ruta_destinos": [],
+        "motivo_salida": "",
+    }
+
+
+def _emergencia_form_from_request() -> dict:
+    return {
+        "resguardante_nombre": request.form.get("resguardante_nombre", "").strip(),
+        "vehiculo_id": request.form.get("vehiculo_id", "").strip(),
+        "responsable_auditor_id": request.form.get("responsable_auditor_id", "").strip(),
+        "no_pasajeros": request.form.get("no_pasajeros", "").strip() or "0",
+        "pasajeros_ids": [pid for pid in request.form.getlist("pasajeros_ids") if pid],
+        "ruta_destinos": [clave for clave in request.form.getlist("ruta_destinos") if clave],
+        "motivo_salida": request.form.get("motivo_salida", "").strip(),
+    }
 
 
 def _solicitudes_bloqueadas(usuario: Optional[str]) -> bool:
@@ -325,6 +360,7 @@ def _build_dashboard_context(
     movimientos = _filtrar_movimientos_hoy(
         db_manager.listar_movimientos(usuario_id=usuario_id),
         fecha_referencia,
+        incluir_prestamos_pendientes=not bool(fecha_solicitud),
     )
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
@@ -356,9 +392,11 @@ def _build_admin_context(
     db_manager: DatabaseManager,
     rol: Optional[str] = None,
     fecha_consulta: Optional[str] = None,
+    emergencia_form: Optional[dict] = None,
 ) -> dict:
     movimientos = db_manager.listar_movimientos()
     fecha_filtro = ""
+    fecha_hoy = date.today().isoformat()
     if fecha_consulta:
         fecha_filtro = _fecha_referencia_registros(fecha_consulta).isoformat()
         movimientos = _filtrar_movimientos_hoy(
@@ -377,8 +415,18 @@ def _build_admin_context(
     )
     if rol == "monitor":
         vehiculos = db_manager.listar_vehiculos_con_propietarios()
+        vehiculos_emergencia = db_manager.listar_vehiculos_disponibles_con_propietarios(fecha_hoy)
+        ocupados_auditores = db_manager.obtener_auditores_ocupados(fecha_hoy)
+        auditores_emergencia = [
+            item for item in db_manager.listar_auditores()
+            if item.get("id") not in ocupados_auditores
+        ]
+        entes = db_manager.listar_entes()
     else:
         vehiculos = db_manager.listar_vehiculos()
+        vehiculos_emergencia = []
+        auditores_emergencia = []
+        entes = []
     responsables = db_manager.listar_responsables()
     total_stock, total_disponible = db_manager.contar_vehiculos_disponibles()
     en_uso = sum(
@@ -400,6 +448,12 @@ def _build_admin_context(
         "movimientos_alerta": total_alertas,
         "today": date.today().isoformat(),
         "fecha_consulta": fecha_filtro,
+        "vehiculos_emergencia": vehiculos_emergencia,
+        "auditores_emergencia": auditores_emergencia,
+        "entes": entes,
+        "motivos_salida": MOTIVOS_SALIDA_VALIDOS,
+        "emergencia_habilitada": rol == "monitor" and fecha_filtro == fecha_hoy,
+        "emergencia_form": emergencia_form or _empty_emergencia_form(),
     }
 
 
@@ -472,6 +526,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             context["movimientos_usuarios_observados"] = _filtrar_movimientos_hoy(
                 db_manager.listar_movimientos_por_usuarios(["ramos", "mike"]),
                 _fecha_referencia_registros(fecha),
+                incluir_prestamos_pendientes=not bool(fecha),
             )
         return render_template(
             "dashboard.html",
@@ -506,6 +561,68 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         if not fecha_raw:
             return redirect(url_for("admin"))
         return redirect(url_for("admin", fecha=_normalizar_fecha_solicitud(fecha_raw)))
+
+    @app.route("/movimientos/emergencia", methods=["POST"])
+    def movimientos_emergencia():
+        if session.get("rol") != "monitor":
+            return redirect(url_for("dashboard"))
+
+        form_data = _emergencia_form_from_request()
+        fecha_emergencia = date.today().isoformat()
+
+        def _render_error(mensaje: str):
+            return render_template(
+                "admin.html",
+                usuario=session.get("nombre"),
+                rol=session.get("rol"),
+                error=mensaje,
+                **_build_admin_context(
+                    app,
+                    db_manager,
+                    session.get("rol"),
+                    fecha_emergencia,
+                    emergencia_form=form_data,
+                ),
+            )
+
+        if not form_data["resguardante_nombre"]:
+            return _render_error("Falta capturar el nombre del resguardante.")
+        if not form_data["vehiculo_id"].isdigit():
+            return _render_error("Falta seleccionar una unidad disponible.")
+        if not form_data["responsable_auditor_id"].isdigit():
+            return _render_error("Falta seleccionar al responsable del vehiculo.")
+        if not form_data["no_pasajeros"].isdigit():
+            return _render_error("El numero de pasajeros debe ser numerico.")
+
+        no_pasajeros = int(form_data["no_pasajeros"])
+        if no_pasajeros < 0:
+            return _render_error("El numero de pasajeros no puede ser menor a cero.")
+        if no_pasajeros > 4:
+            return _render_error("El numero de pasajeros no puede exceder 4.")
+        if any(not pid.isdigit() for pid in form_data["pasajeros_ids"]):
+            return _render_error("La lista de auditores no es valida.")
+        if len(form_data["pasajeros_ids"]) != no_pasajeros:
+            return _render_error("El numero de pasajeros debe coincidir con los auditores seleccionados.")
+        if not form_data["ruta_destinos"]:
+            return _render_error("Falta seleccionar la ruta destino.")
+        if form_data["motivo_salida"] not in MOTIVOS_SALIDA_VALIDOS:
+            return _render_error("El motivo de salida no es valido.")
+
+        ok, data = db_manager.crear_movimiento_emergencia(
+            session.get("usuario_id"),
+            form_data["resguardante_nombre"],
+            int(form_data["vehiculo_id"]),
+            int(form_data["responsable_auditor_id"]),
+            no_pasajeros,
+            [int(pid) for pid in form_data["pasajeros_ids"]],
+            form_data["ruta_destinos"],
+            form_data["motivo_salida"],
+            fecha_solicitud=fecha_emergencia,
+        )
+        if not ok:
+            return _render_error(data.get("mensaje") if isinstance(data, dict) else str(data))
+
+        return redirect(url_for("reporte_movimiento", mov_id=data["movimiento_id"]))
 
     @app.route("/solicitar", methods=["POST"])
     def solicitar():
@@ -654,15 +771,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 **context,
             )
 
-        motivos_validos = {
-            "Notificación de Oficio",
-            "Revisión de Auditoría",
-            "Entrega de Recepción",
-            "Acta de Cierre",
-            "Compulsas",
-            "Inspección Física",
-        }
-        if motivo not in motivos_validos:
+        if motivo not in MOTIVOS_SALIDA_VALIDOS:
             context = _build_dashboard_context(app, db_manager, session.get("usuario_id"), fecha)
             return render_template(
                 "dashboard.html",

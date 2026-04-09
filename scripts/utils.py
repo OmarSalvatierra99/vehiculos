@@ -21,6 +21,15 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger("INVENTARIOS")
 
+MOTIVOS_SALIDA_VALIDOS = (
+    "Notificación de Oficio",
+    "Revisión de Auditoría",
+    "Entrega de Recepción",
+    "Acta de Cierre",
+    "Compulsas",
+    "Inspección Física",
+)
+
 
 def _normalizar_header(valor: str) -> str:
     if not valor:
@@ -356,6 +365,7 @@ class DatabaseManager:
                 no_pasajeros INTEGER,
                 ruta_destino TEXT,
                 motivo_salida TEXT,
+                es_emergencia INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
             );
@@ -554,6 +564,7 @@ class DatabaseManager:
             ("no_pasajeros", "INTEGER"),
             ("ruta_destino", "TEXT"),
             ("motivo_salida", "TEXT"),
+            ("es_emergencia", "INTEGER DEFAULT 0"),
         ]
         for nombre, tipo in columnas:
             if nombre not in existentes:
@@ -1261,6 +1272,46 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def listar_vehiculos_disponibles_con_propietarios(
+        self,
+        fecha_iso: Optional[str] = None,
+    ) -> List[Dict]:
+        fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT v.id, v.placa, v.modelo, v.marca,
+                   COALESCE(GROUP_CONCAT(u.nombre, ', '), '') AS propietarios_nombres
+            FROM vehiculos v
+            LEFT JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
+            LEFT JOIN usuarios u ON u.id = uv.usuario_id
+            WHERE v.activo=1
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM movimientos m
+                  WHERE m.vehiculo_id = v.id
+                    AND m.fecha_solicitud = ?
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM movimientos_eventos me
+                        WHERE me.movimiento_id = m.id
+                          AND me.evento = 'RECHAZADO'
+                    )
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM prestamos_vehiculos p
+                  WHERE p.vehiculo_id = v.id
+                    AND p.estado = 'VALIDADO'
+                    AND (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
+              )
+            GROUP BY v.id
+            ORDER BY v.placa
+        """, (fecha_txt, fecha_txt))
+        data = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return data
+
     def listar_vehiculos_disponibles(self, fecha_iso: Optional[str] = None) -> List[Dict]:
         fecha_txt = _parse_date(fecha_iso) or _hoy_iso()
         conn = self._connect()
@@ -1622,15 +1673,7 @@ class DatabaseManager:
                 return False, f"Falta el dato de {clave}."
             if isinstance(valor, list) and not valor:
                 return False, f"Falta el dato de {clave}."
-        motivos_validos = {
-            "Notificación de Oficio",
-            "Revisión de Auditoría",
-            "Entrega de Recepción",
-            "Acta de Cierre",
-            "Compulsas",
-            "Inspección Física",
-        }
-        if motivo_salida not in motivos_validos:
+        if motivo_salida not in MOTIVOS_SALIDA_VALIDOS:
             return False, "Motivo de salida no valido."
 
         fechas_limpias = []
@@ -1697,10 +1740,10 @@ class DatabaseManager:
               AND estado IN ('PENDIENTE', 'VALIDADO')
         """, (vehiculo_id,))
         for row in cur.fetchall():
-            fechas_txt = row["fechas_solicitadas"] or ""
+            fechas_existentes_txt = row["fechas_solicitadas"] or ""
             fechas_reserva = {
                 fecha.strip()
-                for fecha in fechas_txt.split(",")
+                for fecha in fechas_existentes_txt.split(",")
                 if fecha.strip()
             }
             fecha_registro = _parse_date(row["fecha_solicitud"])
@@ -1920,15 +1963,7 @@ class DatabaseManager:
                 return False, {"mensaje": f"Falta el dato de {clave}."}
             if isinstance(valor, list) and not valor:
                 return False, {"mensaje": f"Falta el dato de {clave}."}
-        motivos_validos = {
-            "Notificación de Oficio",
-            "Revisión de Auditoría",
-            "Entrega de Recepción",
-            "Acta de Cierre",
-            "Compulsas",
-            "Inspección Física",
-        }
-        if motivo_salida not in motivos_validos:
+        if motivo_salida not in MOTIVOS_SALIDA_VALIDOS:
             return False, {"mensaje": "Motivo de salida no valido."}
 
         conn = self._connect()
@@ -2101,6 +2136,81 @@ class DatabaseManager:
         conn.close()
         return True, {"folio": folio, "movimiento_id": movimiento_id}
 
+    def crear_movimiento_emergencia(
+        self,
+        monitor_id: int,
+        resguardante_nombre: str,
+        vehiculo_id: int,
+        responsable_auditor_id: int,
+        no_pasajeros: int,
+        pasajeros_ids: List[int],
+        ruta_destinos: List[str],
+        motivo_salida: str,
+        observaciones: Optional[str] = None,
+        fecha_solicitud: Optional[str] = None,
+    ) -> Tuple[bool, Dict]:
+        fecha_txt = _parse_date(fecha_solicitud) or _hoy_iso()
+        if fecha_txt != _hoy_iso():
+            return False, {"mensaje": "Los movimientos de emergencia solo se pueden registrar para la fecha actual."}
+
+        resguardante_nombre_txt = (resguardante_nombre or "").strip()
+        if not resguardante_nombre_txt:
+            return False, {"mensaje": "Falta capturar el nombre del resguardante."}
+
+        nota_emergencia = (observaciones or "").strip()
+        if nota_emergencia:
+            nota_emergencia = f"Emergencia: {nota_emergencia}"
+        else:
+            nota_emergencia = "Emergencia registrada por monitor."
+
+        ok, data = self.crear_movimiento(
+            monitor_id,
+            ruta_destinos[0] if ruta_destinos else "",
+            1,
+            resguardante_nombre_txt,
+            None,
+            nota_emergencia,
+            None,
+            vehiculo_id,
+            responsable_auditor_id,
+            "auditor",
+            no_pasajeros,
+            pasajeros_ids,
+            ruta_destinos,
+            motivo_salida,
+            fecha_solicitud=fecha_txt,
+        )
+        if not ok:
+            return ok, data
+
+        movimiento_id = data["movimiento_id"]
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE movimientos
+            SET resguardante_nombre=?,
+                resguardante_id=NULL,
+                receptor_nombre=?,
+                observaciones=?,
+                es_emergencia=1
+            WHERE id=?
+        """, (
+            resguardante_nombre_txt,
+            resguardante_nombre_txt,
+            nota_emergencia,
+            movimiento_id,
+        ))
+        self._registrar_evento(cur, movimiento_id, monitor_id, "EMERGENCIA", "Alta directa por monitor.")
+        conn.commit()
+        conn.close()
+
+        ok_entrega, mensaje_entrega = self.marcar_entregado(movimiento_id, monitor_id)
+        if not ok_entrega:
+            return False, {"mensaje": mensaje_entrega}
+
+        data["es_emergencia"] = 1
+        return True, data
+
     def listar_movimientos(self, usuario_id: Optional[int] = None) -> List[Dict]:
         conn = self._connect()
         cur = conn.cursor()
@@ -2147,6 +2257,7 @@ class DatabaseManager:
                        )
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
+                   COALESCE(m.es_emergencia, 0) AS es_emergencia,
                    EXISTS(
                        SELECT 1
                        FROM movimientos_eventos me
@@ -2262,6 +2373,7 @@ class DatabaseManager:
                 "pasajeros_nombres": ", ".join(nombres_pasajeros),
                 "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
                 "motivo_salida": row["motivo_salida"],
+                "es_emergencia": 0,
                 "rechazado": 1 if estado == "RECHAZADO" else 0,
                 "ente_nombre": None,
                 "usuario_nombre": row["solicitante_nombre"],
@@ -2340,6 +2452,7 @@ class DatabaseManager:
                        )
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
+                   COALESCE(m.es_emergencia, 0) AS es_emergencia,
                    EXISTS(
                        SELECT 1
                        FROM movimientos_eventos me
@@ -2414,6 +2527,7 @@ class DatabaseManager:
                 "pasajeros_nombres": "",
                 "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
                 "motivo_salida": row["motivo_salida"],
+                "es_emergencia": 0,
                 "rechazado": 1 if estado == "RECHAZADO" else 0,
                 "ente_nombre": None,
                 "usuario_nombre": row["solicitante_nombre"],
@@ -2538,6 +2652,7 @@ class DatabaseManager:
                        )
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
+                   COALESCE(m.es_emergencia, 0) AS es_emergencia,
                    e.nombre AS ente_nombre,
                    u.nombre AS usuario_nombre
             FROM movimientos m
@@ -2628,6 +2743,7 @@ class DatabaseManager:
                 "pasajeros_nombres": ", ".join(nombres_pasajeros),
                 "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
                 "motivo_salida": row["motivo_salida"],
+                "es_emergencia": 0,
                 "ente_nombre": None,
                 "usuario_nombre": row["solicitante_nombre"],
                 "tipo": "prestamo",
@@ -2674,6 +2790,7 @@ class DatabaseManager:
                        )
                    ), m.ruta_destino) AS ruta_destino,
                    m.motivo_salida,
+                   COALESCE(m.es_emergencia, 0) AS es_emergencia,
                    u.nombre AS usuario_nombre,
                    e.nombre AS ente_nombre
             FROM movimientos m
@@ -2764,6 +2881,7 @@ class DatabaseManager:
             "pasajeros_nombres": ", ".join(pasajeros_nombres),
             "ruta_destino": self._formatear_ruta_destino_con_entes_cursor(cur, row["ruta_destino"]),
             "motivo_salida": row["motivo_salida"],
+            "es_emergencia": 0,
             "usuario_nombre": row["solicitante_nombre"],
             "propietario_nombre": row["propietario_nombre"],
             "tipo": "prestamo",

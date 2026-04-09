@@ -84,7 +84,15 @@
       {% if rol == "monitor" %}
       <span>{{ mov.data.responsable_vehiculo or 'Sin responsable' }}</span>
       <span>{{ mov.data.propietarios_nombres or mov.data.resguardante_nombre or 'Sin asignacion' }}</span>
-      <span>{% if mov.data.tipo == "prestamo" %}Prestamo{% else %}Solicitud{% endif %}</span>
+      <span>
+        {% if mov.data.es_emergencia %}
+          Emergencia
+        {% elif mov.data.tipo == "prestamo" %}
+          Prestamo
+        {% else %}
+          Solicitud
+        {% endif %}
+      </span>
       {% endif %}
       {% if rol == "monitor" %}
       <span>
@@ -188,6 +196,165 @@
   {% endif %}
 </section>
 
+{% if rol == "monitor" %}
+<section class="card">
+  <div class="card-header">
+    <div>
+      <h2>Alta de emergencia</h2>
+      <p class="subtitle">Capture la salida con la misma estructura de una solicitud normal. Disponible solo para hoy.</p>
+    </div>
+  </div>
+  {% if emergencia_habilitada %}
+    {% if vehiculos_emergencia and auditores_emergencia %}
+    <form method="post" action="{{ url_for('movimientos_emergencia') }}" class="form">
+      <div class="form-sections">
+        <fieldset class="form-section">
+          <legend>Unidad</legend>
+          <label class="full">
+            <span>Placa de la unidad</span>
+            <select name="vehiculo_id" id="emergencia_vehiculo_id" required>
+              <option value="">Seleccione una unidad</option>
+              {% for vehiculo in vehiculos_emergencia %}
+              <option
+                value="{{ vehiculo.id }}"
+                data-owner="{{ vehiculo.propietarios_nombres or '' }}"
+                data-plate="{{ vehiculo.placa }}"
+                data-brand="{{ vehiculo.marca }}"
+                data-model="{{ vehiculo.modelo }}"
+                {% if emergencia_form.vehiculo_id|string == vehiculo.id|string %}selected{% endif %}
+              >
+                {{ vehiculo.placa }} · {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietarios_nombres or 'Sin asignacion' }}
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="full unit-summary" id="emergencia_unidad_resumen">
+            <div>
+              <span class="summary-label">Unidad seleccionada</span>
+              <strong id="emergencia_unidad_placa">Seleccione una unidad</strong>
+            </div>
+            <div>
+              <span class="summary-label">Marca y modelo</span>
+              <strong id="emergencia_unidad_modelo">-</strong>
+            </div>
+            <div>
+              <span class="summary-label">Responsable actual</span>
+              <strong id="emergencia_unidad_propietario">-</strong>
+            </div>
+          </div>
+          <label class="full">
+            <span>Nombre del resguardante</span>
+            <input
+              type="text"
+              name="resguardante_nombre"
+              id="emergencia_resguardante_nombre"
+              value="{{ emergencia_form.resguardante_nombre }}"
+              placeholder="Nombre del resguardante"
+              required
+            >
+          </label>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Personal</legend>
+          <label class="full">
+            <span>Responsable del vehiculo</span>
+            <select name="responsable_auditor_id" id="emergencia_responsable_auditor_id" required>
+              <option value="">Seleccione un responsable</option>
+              {% for auditor in auditores_emergencia %}
+              <option value="{{ auditor.id }}" {% if emergencia_form.responsable_auditor_id|string == auditor.id|string %}selected{% endif %}>
+                {{ auditor.nombre }}
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>No. de acompañantes (sin conductor)</span>
+            <input
+              type="number"
+              name="no_pasajeros"
+              id="emergencia_no_pasajeros"
+              min="0"
+              max="4"
+              value="{{ emergencia_form.no_pasajeros or '0' }}"
+              required
+            >
+          </label>
+          <label class="full" id="emergencia_pasajeros_label">
+            <span>Nombre de los auditores</span>
+            <div class="combobox-container" id="emergencia_pasajeros_container">
+              <div class="combobox-search">
+                <input type="search" id="emergencia_pasajeros_search" class="combobox-input" placeholder="Buscar y seleccionar auditores..." autocomplete="off">
+                <div id="emergencia_pasajeros_dropdown" class="combobox-dropdown" hidden></div>
+              </div>
+              <select name="pasajeros_ids" id="emergencia_pasajeros_ids" data-max="4" multiple hidden>
+                {% for auditor in auditores_emergencia %}
+                <option value="{{ auditor.id }}" {% if auditor.id|string in emergencia_form.pasajeros_ids %}selected{% endif %}>
+                  {{ auditor.nombre }}
+                </option>
+                {% endfor %}
+              </select>
+              <div class="combobox-meta">
+                <span id="emergencia_pasajeros_count" class="multi-count">0 seleccionados</span>
+              </div>
+              <div id="emergencia_pasajeros_chips" class="combobox-chips" data-empty="Ningún auditor seleccionado" aria-live="polite">
+                <span class="chip-empty">Ningún auditor seleccionado</span>
+              </div>
+            </div>
+            <p class="hint">El numero de auditores debe coincidir con los acompañantes seleccionados.</p>
+          </label>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Ruta y motivo</legend>
+          <label class="full">
+            <span>Ruta-destino</span>
+            <div class="combobox-container">
+              <div class="combobox-search">
+                <input type="search" id="emergencia_ruta_search" class="combobox-input" placeholder="Buscar destino o dependencia..." autocomplete="off">
+                <div id="emergencia_ruta_dropdown" class="combobox-dropdown" hidden></div>
+              </div>
+              <select name="ruta_destinos" id="emergencia_ruta_destinos" multiple hidden required>
+                {% for ente in entes %}
+                <option value="{{ ente.clave }}" data-nombre="{{ ente.nombre }}" {% if ente.clave in emergencia_form.ruta_destinos %}selected{% endif %}>
+                  {{ ente.nombre }}
+                </option>
+                {% endfor %}
+              </select>
+              <div class="combobox-meta">
+                <span id="emergencia_ruta_count" class="multi-count">0 seleccionados</span>
+              </div>
+              <div id="emergencia_ruta_chips" class="combobox-chips" data-empty="Ningún destino seleccionado" aria-live="polite">
+                <span class="chip-empty">Ningún destino seleccionado</span>
+              </div>
+            </div>
+          </label>
+          <label class="full">
+            <span>Motivo de salida</span>
+            <select name="motivo_salida" required>
+              <option value="">Seleccione un motivo</option>
+              {% for motivo in motivos_salida %}
+              <option value="{{ motivo }}" {% if emergencia_form.motivo_salida == motivo %}selected{% endif %}>
+                {{ motivo }}
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+        </fieldset>
+      </div>
+      <div class="actions">
+        <button class="btn primary" type="submit">Registrar salida de emergencia</button>
+      </div>
+    </form>
+    {% else %}
+    <div class="alert">No hay unidades o auditores disponibles para registrar una salida de emergencia en este momento.</div>
+    {% endif %}
+  {% else %}
+  <p class="hint">Las altas de emergencia solo se habilitan cuando el panel esta consultando la fecha actual.</p>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="grid">
   <div class="card">
     <h2>Unidades registradas</h2>
@@ -218,4 +385,325 @@
     {% endif %}
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+{% if rol == "monitor" and emergencia_habilitada %}
+<script>
+  (() => {
+    const form = document.querySelector('form[action="{{ url_for("movimientos_emergencia") }}"]');
+    const vehiculoSelect = document.getElementById("emergencia_vehiculo_id");
+    const ownerInput = document.getElementById("emergencia_resguardante_nombre");
+    const unidadPlaca = document.getElementById("emergencia_unidad_placa");
+    const unidadModelo = document.getElementById("emergencia_unidad_modelo");
+    const unidadPropietario = document.getElementById("emergencia_unidad_propietario");
+    const responsableSelect = document.getElementById("emergencia_responsable_auditor_id");
+    const pasajerosSelect = document.getElementById("emergencia_pasajeros_ids");
+    const pasajerosSearch = document.getElementById("emergencia_pasajeros_search");
+    const pasajerosDropdown = document.getElementById("emergencia_pasajeros_dropdown");
+    const pasajerosChips = document.getElementById("emergencia_pasajeros_chips");
+    const pasajerosCount = document.getElementById("emergencia_pasajeros_count");
+    const rutaSelect = document.getElementById("emergencia_ruta_destinos");
+    const rutaSearch = document.getElementById("emergencia_ruta_search");
+    const rutaDropdown = document.getElementById("emergencia_ruta_dropdown");
+    const rutaChips = document.getElementById("emergencia_ruta_chips");
+    const rutaCount = document.getElementById("emergencia_ruta_count");
+    const noPasajerosInput = document.getElementById("emergencia_no_pasajeros");
+    const pasajerosContainer = document.getElementById("emergencia_pasajeros_container");
+    const pasajerosLabel = document.getElementById("emergencia_pasajeros_label");
+
+    if (!form || !vehiculoSelect) {
+      return;
+    }
+
+    const syncVehicleDetails = () => {
+      const selected = vehiculoSelect.selectedOptions[0];
+      const owner = selected?.dataset.owner || "";
+      const autoOwner = ownerInput?.dataset.autoValue || "";
+
+      if (!selected) {
+        if (unidadPlaca) unidadPlaca.textContent = "Seleccione una unidad";
+        if (unidadModelo) unidadModelo.textContent = "-";
+        if (unidadPropietario) unidadPropietario.textContent = "-";
+      } else {
+        if (unidadPlaca) unidadPlaca.textContent = selected.dataset.plate || "Unidad seleccionada";
+        if (unidadModelo) {
+          const marca = selected.dataset.brand || "-";
+          const modelo = selected.dataset.model || "-";
+          unidadModelo.textContent = `${marca} ${modelo}`.trim();
+        }
+        if (unidadPropietario) unidadPropietario.textContent = owner || "Sin asignacion";
+      }
+
+      if (ownerInput) {
+        if (!ownerInput.value.trim() || ownerInput.value === autoOwner) {
+          ownerInput.value = owner;
+        }
+        ownerInput.dataset.autoValue = owner;
+      }
+    };
+
+    const setupCombobox = (searchInput, dropdown, selectEl, chipsContainer, countEl, passengerLimitInput, excludeOptionFn) => {
+      if (!searchInput || !dropdown || !selectEl || !chipsContainer || !countEl) {
+        return null;
+      }
+
+      let allOptions = Array.from(selectEl.options).filter((option) => !option.disabled);
+      const maxSelected = Number.parseInt(selectEl.dataset.max || "999", 10);
+      let focusedIndex = -1;
+
+      const refreshOptions = () => {
+        allOptions = Array.from(selectEl.options).filter((option) => !option.disabled);
+      };
+
+      const updateCount = () => {
+        const selected = selectEl.selectedOptions.length;
+        countEl.textContent = `${selected} seleccionado${selected !== 1 ? "s" : ""}`;
+      };
+
+      const updateChips = () => {
+        chipsContainer.innerHTML = "";
+        const selected = Array.from(selectEl.selectedOptions);
+        if (!selected.length) {
+          const empty = document.createElement("span");
+          empty.className = "chip-empty";
+          empty.textContent = chipsContainer.dataset.empty || "Ningún elemento seleccionado";
+          chipsContainer.appendChild(empty);
+          return;
+        }
+        selected.forEach((option) => {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "chip chip-removable";
+          chip.innerHTML = `${option.textContent} <span class="chip-remove">×</span>`;
+          chip.addEventListener("click", (event) => {
+            event.preventDefault();
+            option.selected = false;
+            updateChips();
+            updateCount();
+            renderDropdown(searchInput.value);
+          });
+          chipsContainer.appendChild(chip);
+        });
+      };
+
+      const filteredOptions = (term) => {
+        const normalized = term.toLowerCase().trim();
+        return allOptions.filter((option) => {
+          if (option.selected) {
+            return false;
+          }
+          if (excludeOptionFn && excludeOptionFn(option)) {
+            return false;
+          }
+          const label = (option.dataset.nombre || option.textContent || "").toLowerCase().trim();
+          return !normalized || label.includes(normalized);
+        });
+      };
+
+      const hideDropdown = () => {
+        dropdown.hidden = true;
+        focusedIndex = -1;
+      };
+
+      const renderDropdown = (term) => {
+        const options = filteredOptions(term);
+        dropdown.innerHTML = "";
+        focusedIndex = -1;
+        if (!options.length) {
+          const item = document.createElement("div");
+          item.className = "combobox-item combobox-no-results";
+          item.textContent = "No se encontraron resultados";
+          dropdown.appendChild(item);
+          dropdown.hidden = false;
+          return;
+        }
+        options.forEach((option, index) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "combobox-item";
+          item.textContent = option.textContent;
+          item.dataset.value = option.value;
+          item.dataset.index = index;
+          item.addEventListener("click", (event) => {
+            event.preventDefault();
+            selectOption(option);
+          });
+          dropdown.appendChild(item);
+        });
+        dropdown.hidden = false;
+      };
+
+      const selectOption = (option) => {
+        let allowed = maxSelected;
+        if (passengerLimitInput) {
+          const fromInput = Number.parseInt(passengerLimitInput.value || "0", 10);
+          allowed = Number.isFinite(fromInput) ? Math.min(Math.max(fromInput, 0), maxSelected) : 0;
+          if (allowed <= 0) {
+            window.alert("Indique al menos 1 acompañante para poder seleccionar auditores.");
+            return;
+          }
+        }
+        if (Number.isFinite(allowed) && selectEl.selectedOptions.length >= allowed) {
+          window.alert(`Solo puede seleccionar hasta ${allowed} auditores.`);
+          return;
+        }
+        option.selected = true;
+        searchInput.value = "";
+        updateChips();
+        updateCount();
+        renderDropdown("");
+        searchInput.focus();
+      };
+
+      const updateFocus = (newIndex) => {
+        const items = dropdown.querySelectorAll(".combobox-item:not(.combobox-no-results)");
+        if (!items.length) {
+          return;
+        }
+        items.forEach((item) => item.classList.remove("focused"));
+        if (newIndex >= 0 && newIndex < items.length) {
+          focusedIndex = newIndex;
+          items[focusedIndex].classList.add("focused");
+          items[focusedIndex].scrollIntoView({ block: "nearest" });
+        }
+      };
+
+      searchInput.addEventListener("input", () => renderDropdown(searchInput.value));
+      searchInput.addEventListener("focus", () => renderDropdown(searchInput.value));
+      searchInput.addEventListener("keydown", (event) => {
+        const items = dropdown.querySelectorAll(".combobox-item:not(.combobox-no-results)");
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (dropdown.hidden) {
+            renderDropdown(searchInput.value);
+          } else {
+            updateFocus(Math.min(focusedIndex + 1, items.length - 1));
+          }
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          updateFocus(Math.max(focusedIndex - 1, 0));
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          if (focusedIndex >= 0 && focusedIndex < items.length) {
+            const value = items[focusedIndex].dataset.value;
+            const option = allOptions.find((item) => item.value === value);
+            if (option) {
+              selectOption(option);
+            }
+          }
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          hideDropdown();
+        }
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!searchInput.contains(event.target) && !dropdown.contains(event.target)) {
+          hideDropdown();
+        }
+      });
+
+      refreshOptions();
+      updateChips();
+      updateCount();
+      return { refreshOptions, updateChips, updateCount, renderDropdown, hideDropdown, selectEl };
+    };
+
+    const pasajerosCombobox = setupCombobox(
+      pasajerosSearch,
+      pasajerosDropdown,
+      pasajerosSelect,
+      pasajerosChips,
+      pasajerosCount,
+      noPasajerosInput,
+      (option) => {
+        const responsableId = responsableSelect?.value || "";
+        return Boolean(responsableId && option.value === responsableId);
+      },
+    );
+    const rutaCombobox = setupCombobox(
+      rutaSearch,
+      rutaDropdown,
+      rutaSelect,
+      rutaChips,
+      rutaCount,
+      null,
+      null,
+    );
+
+    const syncPassengerRules = () => {
+      if (!pasajerosSelect || !noPasajerosInput) {
+        return;
+      }
+      const responsableId = responsableSelect?.value || "";
+      Array.from(pasajerosSelect.options).forEach((option) => {
+        if (responsableId && option.value === responsableId) {
+          option.selected = false;
+        }
+      });
+      const allowed = Number.parseInt(noPasajerosInput?.value || "0", 10);
+      const maxAllowed = Number.isNaN(allowed) ? 0 : Math.min(Math.max(allowed, 0), 4);
+      if (noPasajerosInput) {
+        noPasajerosInput.value = String(maxAllowed);
+      }
+      if (pasajerosContainer) {
+        pasajerosContainer.hidden = maxAllowed === 0;
+      }
+      if (pasajerosLabel) {
+        pasajerosLabel.classList.toggle("is-disabled", maxAllowed === 0);
+      }
+      if (pasajerosSearch) {
+        pasajerosSearch.disabled = maxAllowed === 0;
+        if (maxAllowed === 0) {
+          pasajerosSearch.value = "";
+        }
+      }
+      const selected = Array.from(pasajerosSelect.selectedOptions).filter((option) => !option.disabled);
+      if (selected.length > maxAllowed) {
+        selected.slice(maxAllowed).forEach((option) => {
+          option.selected = false;
+        });
+      }
+      pasajerosCombobox?.updateChips();
+      pasajerosCombobox?.updateCount();
+      pasajerosCombobox?.refreshOptions();
+      if (maxAllowed === 0) {
+        pasajerosDropdown.hidden = true;
+      }
+    };
+
+    vehiculoSelect.addEventListener("change", syncVehicleDetails);
+    responsableSelect?.addEventListener("change", syncPassengerRules);
+    noPasajerosInput?.addEventListener("input", syncPassengerRules);
+    pasajerosSelect?.addEventListener("change", () => {
+      syncPassengerRules();
+    });
+
+    form.addEventListener("submit", (event) => {
+      if (!pasajerosSelect || !noPasajerosInput || !rutaSelect) {
+        return;
+      }
+      const expected = Number.parseInt(noPasajerosInput.value || "0", 10);
+      const selectedCount = Array.from(pasajerosSelect.selectedOptions).filter((option) => !option.disabled).length;
+      if (expected !== selectedCount) {
+        event.preventDefault();
+        window.alert(`El numero de pasajeros debe coincidir con los auditores seleccionados. Indicado: ${expected}, seleccionados: ${selectedCount}.`);
+        return;
+      }
+      if (!rutaSelect.selectedOptions.length) {
+        event.preventDefault();
+        window.alert("Seleccione al menos un destino para la ruta de emergencia.");
+      }
+    });
+
+    syncVehicleDetails();
+    syncPassengerRules();
+    pasajerosCombobox?.updateChips();
+    pasajerosCombobox?.updateCount();
+    rutaCombobox?.updateChips();
+    rutaCombobox?.updateCount();
+  })();
+</script>
+{% endif %}
 {% endblock %}
