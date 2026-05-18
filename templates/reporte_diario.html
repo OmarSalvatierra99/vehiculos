@@ -106,8 +106,9 @@
       report.classList.add("report-fit-print");
       report.style.setProperty("--print-fit-scale", "1");
 
-      const pageWidth = window.innerWidth - 8;
-      const pageHeight = window.innerHeight - 8;
+      const pxPerMm = 96 / 25.4;
+      const pageWidth = (279.4 - 8 - 10) * pxPerMm;
+      const pageHeight = (215.9 - 8) * pxPerMm;
       const reportWidth = report.scrollWidth;
       const reportHeight = report.scrollHeight;
 

@@ -1138,14 +1138,14 @@ textarea {
   }
 
   @page {
-    size: letter;
+    size: letter landscape;
     margin: 4mm;
   }
 
   html,
   body {
-    width: auto;
-    height: auto;
+    width: 279.4mm;
+    min-height: 215.9mm;
     margin: 0;
     background: #ffffff;
     color: #000000;
