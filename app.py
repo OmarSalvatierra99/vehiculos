@@ -291,6 +291,18 @@ def _es_visor_omar(usuario: Optional[str]) -> bool:
     return (usuario or "").strip().lower() == "omar"
 
 
+def _listar_vehiculos_solicitables(
+    db_manager: DatabaseManager,
+    usuario_id: int,
+    usuario: Optional[str],
+) -> List[dict]:
+    usuario_actual = (usuario or "").strip().lower()
+    if usuario_actual in {"mike", "ramos"}:
+        omar_id = db_manager.obtener_usuario_id("omar")
+        return db_manager.listar_vehiculos(usuario_id=omar_id) if omar_id else []
+    return db_manager.listar_vehiculos(usuario_id=usuario_id)
+
+
 def _build_dashboard_context(
     app: Flask,
     db_manager: DatabaseManager,
@@ -302,12 +314,11 @@ def _build_dashboard_context(
     # Garantiza que el usuario actual exista en el catalogo de auditores
     # para poder seleccionarlo como responsable o pasajero.
     db_manager.asegurar_auditor_usuario(usuario_id)
-    usuario_actual = (session.get("usuario") or "").strip().lower()
-    if usuario_actual in {"mike", "ramos"}:
-        omar_id = db_manager.obtener_usuario_id("omar")
-        vehiculos = db_manager.listar_vehiculos(usuario_id=omar_id) if omar_id else []
-    else:
-        vehiculos = db_manager.listar_vehiculos(usuario_id=usuario_id)
+    vehiculos = _listar_vehiculos_solicitables(
+        db_manager,
+        usuario_id,
+        session.get("usuario"),
+    )
     ocupados = db_manager.obtener_vehiculos_ocupados(fecha_txt)
     vehiculos = [vehiculo for vehiculo in vehiculos if vehiculo.get("id") not in ocupados]
     ocupados_auditores = db_manager.obtener_auditores_ocupados(fecha_txt)
@@ -849,7 +860,11 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 )
             return redirect(url_for("reporte_prestamo", prestamo_id=prestamo_id))
 
-        vehiculos = db_manager.listar_vehiculos(usuario_id=session.get("usuario_id"))
+        vehiculos = _listar_vehiculos_solicitables(
+            db_manager,
+            session.get("usuario_id"),
+            session.get("usuario"),
+        )
         vehiculo = next(
             (v for v in vehiculos if str(v.get("id")) == str(vehiculo_id)),
             None,
