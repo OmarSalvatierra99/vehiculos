@@ -30,6 +30,8 @@ MOTIVOS_SALIDA_VALIDOS = (
     "Inspección Física",
 )
 
+PLACAS_SOLO_PROPIETARIO = {"XVZ-353-C"}
+
 
 def _normalizar_header(valor: str) -> str:
     if not valor:
@@ -1011,8 +1013,8 @@ class DatabaseManager:
         asignaciones = [
             ("cristina", ["XVZ-357-C", "XVZ-358-C", "XVZ-346-C"]),
             ("miguel", ["XVZ-360-C", "XVZ-373-C", "XVZ-351-C"]),
-            ("omar", ["XVZ-353-C", "XXK-741-D", "XC-8407-C", "XVZ-335-C"]),
-            ("angel", ["XVZ-370-C", "XVZ-356-C", "XTR-479-E"]),
+            ("omar", ["XXK-741-D", "XC-8407-C", "XVZ-335-C"]),
+            ("angel", ["XVZ-353-C", "XVZ-370-C", "XVZ-356-C", "XTR-479-E"]),
             ("juan", ["XVZ-359-C", "XVZ-371-C", "XVZ-349-C"]),
         ]
 
@@ -1362,6 +1364,15 @@ class DatabaseManager:
             WHERE v.activo=1
               AND u.activo=1
               AND uv.usuario_id != ?
+              AND NOT (
+                  UPPER(v.placa) = 'XVZ-353-C'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM usuarios us
+                      WHERE us.id = ?
+                        AND LOWER(us.usuario) = 'angel'
+                  )
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM movimientos m
@@ -1388,7 +1399,7 @@ class DatabaseManager:
                     )
               )
             ORDER BY u.nombre, v.placa
-        """, (solicitante_id, fecha_txt, fecha_txt, fecha_txt))
+        """, (solicitante_id, solicitante_id, fecha_txt, fecha_txt, fecha_txt))
         data = [dict(row) for row in cur.fetchall()]
         conn.close()
         return data
@@ -1714,6 +1725,22 @@ class DatabaseManager:
         if cur.fetchone():
             conn.close()
             return False, "El vehiculo ya esta asignado al solicitante."
+
+        cur.execute("""
+            SELECT v.placa, us.usuario AS solicitante_usuario
+            FROM vehiculos v
+            JOIN usuarios us ON us.id=?
+            WHERE v.id=?
+            LIMIT 1
+        """, (solicitante_id, vehiculo_id))
+        vehiculo_solicitante = cur.fetchone()
+        if (
+            vehiculo_solicitante
+            and (vehiculo_solicitante["placa"] or "").strip().upper() in PLACAS_SOLO_PROPIETARIO
+            and (vehiculo_solicitante["solicitante_usuario"] or "").strip().lower() != "angel"
+        ):
+            conn.close()
+            return False, "El vehiculo solo esta disponible para Angel."
 
         fecha_reserva = fechas_limpias[0].isoformat()
         cur.execute("""
