@@ -7,6 +7,7 @@ import logging
 import random
 import re
 import sqlite3
+import sys
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -18,6 +19,10 @@ try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover
     ZoneInfo = None
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
 
 logger = logging.getLogger("INVENTARIOS")
 
@@ -31,6 +36,9 @@ MOTIVOS_SALIDA_VALIDOS = (
 )
 
 PLACAS_SOLO_PROPIETARIO = {"XVZ-353-C"}
+
+AUDITOR_RUBEN_MENDEZ_CANONICO = "C.P. Rubén Jesús Méndez Arámbula"
+AUDITOR_RUBEN_MENDEZ_CLAVE = "RUBEN_JESUS_MENDEZ_ARAMBULA"
 
 
 def _normalizar_header(valor: str) -> str:
@@ -305,6 +313,7 @@ class DatabaseManager:
         self._seed_responsables()
         self._seed_auditores()
         self._seed_responsables_auditores()
+        self._ensure_auditor_ruben_mendez()
         self._seed_resguardantes()
 
     def _connect(self):
@@ -746,29 +755,6 @@ class DatabaseManager:
                 usuarios,
             )
 
-        usuarios_requeridos = [
-            ("C.P. Miguel Ángel Roldán Peña", "miguel", "miguel2025", "user", ""),
-            ("C.P. Cristina Rosas de la Cruz", "cristina", "cristina2025", "user", ""),
-            ("C.P. Ángel Flores Licona", "angel", "angel2025", "user", ""),
-            ("C.P. Juan José Blanco Sánchez", "juan", "juan2025", "user", ""),
-            ("Ing. Omar Alfredo Castro Orozco", "omar", "omar2025", "user", ""),
-            ("Ramos", "ramos", "Ramos!23", "user", ""),
-            ("Mike", "mike", "Mike!16", "user", ""),
-        ]
-
-        for nombre, usuario, clave_txt, rol_txt, puesto in usuarios_requeridos:
-            cur.execute("""
-                SELECT id
-                FROM usuarios
-                WHERE LOWER(usuario)=LOWER(?)
-            """, (usuario,))
-            if cur.fetchone():
-                continue
-            cur.execute(
-                "INSERT INTO usuarios (nombre, usuario, clave, rol, puesto, entes) VALUES (?, ?, ?, ?, ?, ?)",
-                (nombre, usuario, _hash_password(clave_txt), rol_txt, puesto, "TODOS"),
-            )
-
         conn.commit()
         conn.close()
 
@@ -980,6 +966,9 @@ class DatabaseManager:
             ("XXK-741-D", "Gol Sedán", "VOLKSWAGEN"),
             ("XC-8407-C", "NP 300", "NISSAN"),
             ("XVZ-335-C", "Aveo", "CHEVROLET"),
+            ("XB-3501-D", "700", "RAM"),
+            ("XB-3502-D", "700", "RAM"),
+            ("XB-3503-D", "700", "RAM"),
         ]
         cur.executemany("""
             INSERT INTO vehiculos (placa, modelo, marca, activo)
@@ -1013,7 +1002,16 @@ class DatabaseManager:
         asignaciones = [
             ("cristina", ["XVZ-357-C", "XVZ-358-C", "XVZ-346-C"]),
             ("miguel", ["XVZ-360-C", "XVZ-373-C", "XVZ-351-C"]),
-            ("omar", ["XXK-741-D", "XC-8407-C", "XVZ-335-C"]),
+            ("omar", [
+                "XXK-741-D",
+                "XC-8407-C",
+                "XVZ-335-C",
+                "XB-3501-D",
+                "XB-3502-D",
+                "XB-3503-D",
+            ]),
+            ("mike", ["XB-3501-D", "XB-3502-D", "XB-3503-D"]),
+            ("ramos", ["XB-3501-D", "XB-3502-D", "XB-3503-D"]),
             ("angel", ["XVZ-353-C", "XVZ-370-C", "XVZ-356-C", "XTR-479-E"]),
             ("juan", ["XVZ-359-C", "XVZ-371-C", "XVZ-349-C"]),
         ]
@@ -1094,6 +1092,7 @@ class DatabaseManager:
             ("C.P. Vanesa Angulo Ramírez",),
             ("C.P. Antonio Mastranzo Sánchez",),
             ("C.P. Gonzalo Flores Pérez",),
+            ("C.P. Rubén Jesús Méndez Arámbula",),
             ("Lic. Liliana Bonilla Montiel",),
             ("C.P. Paola Rodríguez Sánchez",),
             ("C.P. David Yair Juárez Zainos",),
@@ -1159,6 +1158,7 @@ class DatabaseManager:
                 "C.P. Vanesa Angulo Ramírez",
                 "C.P. Antonio Mastranzo Sánchez",
                 "C.P. Gonzalo Flores Pérez",
+                "C.P. Rubén Jesús Méndez Arámbula",
             ]),
             ("C.P. Cristina Rosas de la Cruz", [
                 "Lic. Liliana Bonilla Montiel",
@@ -1184,6 +1184,7 @@ class DatabaseManager:
                 "C.P. Jonathan Islas Sosa",
                 "C.P. Isael López Cervantes",
                 "C.P. Aranza Sánchez Trejo",
+                "C.P. Reynaldo Álvarez Teloxa",
             ]),
             ("Ing. Omar Alfredo Castro Orozco", [
                 "Arq. Ramos Martín Quiebras Techalotzi",
@@ -1221,6 +1222,107 @@ class DatabaseManager:
                 INSERT OR IGNORE INTO responsables_auditores (responsable_id, auditor_id, orden)
                 VALUES (?, ?, ?)
             """, registros)
+
+        conn.commit()
+        conn.close()
+
+    def _ensure_auditor_ruben_mendez(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id, nombre FROM auditores")
+        candidatos = [
+            dict(row) for row in cur.fetchall()
+            if _normalizar_clave(row["nombre"]).endswith(AUDITOR_RUBEN_MENDEZ_CLAVE)
+        ]
+        canonico = next(
+            (row for row in candidatos if row["nombre"] == AUDITOR_RUBEN_MENDEZ_CANONICO),
+            None,
+        )
+
+        if canonico:
+            auditor_id = int(canonico["id"])
+            cur.execute("UPDATE auditores SET activo=1 WHERE id=?", (auditor_id,))
+        elif candidatos:
+            auditor_id = int(candidatos[0]["id"])
+            cur.execute("""
+                UPDATE auditores
+                SET nombre=?, activo=1
+                WHERE id=?
+            """, (AUDITOR_RUBEN_MENDEZ_CANONICO, auditor_id))
+        else:
+            cur.execute("""
+                INSERT INTO auditores (nombre, activo)
+                VALUES (?, 1)
+            """, (AUDITOR_RUBEN_MENDEZ_CANONICO,))
+            auditor_id = int(cur.lastrowid)
+
+        for candidato in candidatos:
+            candidato_id = int(candidato["id"])
+            if candidato_id == auditor_id:
+                continue
+            cur.execute("""
+                INSERT OR IGNORE INTO responsables_auditores (responsable_id, auditor_id, orden)
+                SELECT responsable_id, ?, orden
+                FROM responsables_auditores
+                WHERE auditor_id=?
+            """, (auditor_id, candidato_id))
+            cur.execute("""
+                INSERT OR IGNORE INTO movimientos_auditores (movimiento_id, auditor_id)
+                SELECT movimiento_id, ?
+                FROM movimientos_auditores
+                WHERE auditor_id=?
+            """, (auditor_id, candidato_id))
+            cur.execute("DELETE FROM responsables_auditores WHERE auditor_id=?", (candidato_id,))
+            cur.execute("DELETE FROM movimientos_auditores WHERE auditor_id=?", (candidato_id,))
+            cur.execute("UPDATE auditores SET activo=0 WHERE id=?", (candidato_id,))
+
+        responsables_objetivo = ["C.P. Miguel Ángel Roldán Peña"]
+        cur.execute("""
+            SELECT nombre
+            FROM usuarios
+            WHERE LOWER(usuario)=LOWER(?)
+              AND activo=1
+            LIMIT 1
+        """, ("luis",))
+        luis = cur.fetchone()
+        if luis and luis["nombre"]:
+            responsables_objetivo.append(luis["nombre"])
+
+        for responsable_nombre in dict.fromkeys(responsables_objetivo):
+            cur.execute("""
+                INSERT OR IGNORE INTO responsables (nombre, activo)
+                VALUES (?, 1)
+            """, (responsable_nombre,))
+            cur.execute("""
+                UPDATE responsables
+                SET activo=1
+                WHERE nombre=?
+            """, (responsable_nombre,))
+            cur.execute("SELECT id FROM responsables WHERE nombre=?", (responsable_nombre,))
+            responsable = cur.fetchone()
+            if not responsable:
+                continue
+
+            responsable_id = int(responsable["id"])
+            cur.execute("""
+                SELECT 1
+                FROM responsables_auditores
+                WHERE responsable_id=? AND auditor_id=?
+            """, (responsable_id, auditor_id))
+            if cur.fetchone():
+                continue
+
+            cur.execute("""
+                SELECT COALESCE(MAX(orden), 0) + 1
+                FROM responsables_auditores
+                WHERE responsable_id=?
+            """, (responsable_id,))
+            orden = int(cur.fetchone()[0])
+            cur.execute("""
+                INSERT INTO responsables_auditores (responsable_id, auditor_id, orden)
+                VALUES (?, ?, ?)
+            """, (responsable_id, auditor_id, orden))
 
         conn.commit()
         conn.close()
