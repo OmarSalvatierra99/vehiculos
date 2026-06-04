@@ -1342,7 +1342,17 @@ class DatabaseManager:
 
         if usuario_id and tiene_relacion:
             cur.execute("""
-                SELECT v.id, v.placa, v.modelo, v.marca
+                SELECT v.id, v.placa, v.modelo, v.marca,
+                       COALESCE((
+                           SELECT group_concat(nombre, ', ')
+                           FROM (
+                               SELECT u3.nombre AS nombre
+                               FROM usuarios_vehiculos uv3
+                               JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                               WHERE uv3.vehiculo_id = v.id
+                               ORDER BY u3.nombre
+                           )
+                       ), '') AS propietarios_nombres
                 FROM vehiculos v
                 JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
                 WHERE v.activo=1 AND uv.usuario_id=?
@@ -1350,14 +1360,49 @@ class DatabaseManager:
             """, (usuario_id,))
         else:
             cur.execute("""
-                SELECT id, placa, modelo, marca
-                FROM vehiculos
-                WHERE activo=1
-                ORDER BY placa
+                SELECT v.id, v.placa, v.modelo, v.marca,
+                       COALESCE((
+                           SELECT group_concat(nombre, ', ')
+                           FROM (
+                               SELECT u3.nombre AS nombre
+                               FROM usuarios_vehiculos uv3
+                               JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                               WHERE uv3.vehiculo_id = v.id
+                               ORDER BY u3.nombre
+                           )
+                       ), '') AS propietarios_nombres
+                FROM vehiculos v
+                WHERE v.activo=1
+                ORDER BY v.placa
             """)
         data = [dict(r) for r in cur.fetchall()]
         conn.close()
         return data
+
+    def _obtener_resguardantes_vehiculo_cursor(self, cur: sqlite3.Cursor, vehiculo_id: int) -> Optional[Dict[str, Any]]:
+        cur.execute("""
+            SELECT u.id, u.nombre
+            FROM usuarios_vehiculos uv
+            JOIN usuarios u ON u.id = uv.usuario_id
+            WHERE uv.vehiculo_id=?
+            ORDER BY u.nombre
+        """, (vehiculo_id,))
+        rows = [dict(row) for row in cur.fetchall()]
+        if not rows:
+            return None
+        return {
+            "id": rows[0]["id"] if len(rows) == 1 else None,
+            "nombre": ", ".join(row["nombre"] for row in rows if row["nombre"]),
+        }
+
+    @staticmethod
+    def _aplicar_resguardante_asignado(movimiento: Dict) -> Dict:
+        propietarios = (movimiento.get("propietarios_nombres") or "").strip()
+        if propietarios:
+            movimiento["resguardante_nombre"] = propietarios
+            if "," in propietarios:
+                movimiento["resguardante_id"] = None
+        return movimiento
 
     def listar_vehiculos_con_propietarios(self) -> List[Dict]:
         conn = self._connect()
@@ -2098,14 +2143,14 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, nombre
+            SELECT id
             FROM usuarios
             WHERE id=? AND activo=1
         """, (usuario_id,))
-        resguardante = cur.fetchone()
-        if not resguardante:
+        usuario = cur.fetchone()
+        if not usuario:
             conn.close()
-            return False, {"mensaje": "Usuario no encontrado para resguardo."}
+            return False, {"mensaje": "Usuario no encontrado."}
 
         cur.execute("""
             SELECT id, placa, modelo, marca
@@ -2116,6 +2161,11 @@ class DatabaseManager:
         if not vehiculo:
             conn.close()
             return False, {"mensaje": "Vehiculo no encontrado."}
+
+        resguardante = self._obtener_resguardantes_vehiculo_cursor(cur, int(vehiculo_id))
+        if not resguardante:
+            conn.close()
+            return False, {"mensaje": "La unidad no tiene resguardante asignado."}
 
         fecha_solicitud = _parse_date(fecha_solicitud) or _hoy_iso()
         cur.execute("""
@@ -2268,7 +2318,6 @@ class DatabaseManager:
     def crear_movimiento_emergencia(
         self,
         monitor_id: int,
-        resguardante_nombre: str,
         vehiculo_id: int,
         responsable_auditor_id: int,
         no_pasajeros: int,
@@ -2282,10 +2331,6 @@ class DatabaseManager:
         if fecha_txt != _hoy_iso():
             return False, {"mensaje": "Los movimientos de emergencia solo se pueden registrar para la fecha actual."}
 
-        resguardante_nombre_txt = (resguardante_nombre or "").strip()
-        if not resguardante_nombre_txt:
-            return False, {"mensaje": "Falta capturar el nombre del resguardante."}
-
         nota_emergencia = (observaciones or "").strip()
         if nota_emergencia:
             nota_emergencia = f"Emergencia: {nota_emergencia}"
@@ -2296,7 +2341,7 @@ class DatabaseManager:
             monitor_id,
             ruta_destinos[0] if ruta_destinos else "",
             1,
-            resguardante_nombre_txt,
+            "",
             None,
             nota_emergencia,
             None,
@@ -2317,15 +2362,10 @@ class DatabaseManager:
         cur = conn.cursor()
         cur.execute("""
             UPDATE movimientos
-            SET resguardante_nombre=?,
-                resguardante_id=NULL,
-                receptor_nombre=?,
-                observaciones=?,
+            SET observaciones=?,
                 es_emergencia=1
             WHERE id=?
         """, (
-            resguardante_nombre_txt,
-            resguardante_nombre_txt,
             nota_emergencia,
             movimiento_id,
         ))
@@ -2409,6 +2449,7 @@ class DatabaseManager:
         cur.execute(q, params)
         data = [dict(r) for r in cur.fetchall()]
         for mov in data:
+            self._aplicar_resguardante_asignado(mov)
             mov["tipo"] = "movimiento"
             mov["hora_solicitud_mx"] = _hora_mexico_desde_created_at(mov.get("created_at"))
 
@@ -2601,6 +2642,7 @@ class DatabaseManager:
         cur.execute(q, usuarios_norm)
         data = [dict(r) for r in cur.fetchall()]
         for mov in data:
+            self._aplicar_resguardante_asignado(mov)
             mov["tipo"] = "movimiento"
             mov["hora_solicitud_mx"] = _hora_mexico_desde_created_at(mov.get("created_at"))
 
@@ -2754,6 +2796,16 @@ class DatabaseManager:
                    COALESCE(m.marca, v.marca) AS marca,
                    COALESCE(m.modelo, v.modelo) AS modelo,
                    COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
+                   COALESCE((
+                       SELECT group_concat(nombre, ', ')
+                       FROM (
+                           SELECT u3.nombre AS nombre
+                           FROM usuarios_vehiculos uv3
+                           JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                           WHERE uv3.vehiculo_id = v.id
+                           ORDER BY u3.nombre
+                       )
+                   ), "") AS propietarios_nombres,
                    m.vehiculo_id, m.responsable_id,
                    m.no_pasajeros,
                    COALESCE((
@@ -2800,6 +2852,8 @@ class DatabaseManager:
             ORDER BY m.created_at DESC
         """, (fecha_iso,))
         data = [dict(r) for r in cur.fetchall()]
+        for mov in data:
+            self._aplicar_resguardante_asignado(mov)
         cur.execute("""
             SELECT p.id, p.solicitante_id, p.propietario_id, p.vehiculo_id,
                    p.fecha_solicitud, p.estado, p.notas, p.fechas_solicitadas,
@@ -2892,6 +2946,16 @@ class DatabaseManager:
                    COALESCE(m.marca, v.marca) AS marca,
                    COALESCE(m.modelo, v.modelo) AS modelo,
                    COALESCE(m.responsable_vehiculo, uresp.nombre) AS responsable_vehiculo,
+                   COALESCE((
+                       SELECT group_concat(nombre, ', ')
+                       FROM (
+                           SELECT u3.nombre AS nombre
+                           FROM usuarios_vehiculos uv3
+                           JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                           WHERE uv3.vehiculo_id = v.id
+                           ORDER BY u3.nombre
+                       )
+                   ), "") AS propietarios_nombres,
                    m.vehiculo_id, m.responsable_id,
                    m.no_pasajeros,
                    COALESCE((
@@ -2932,7 +2996,9 @@ class DatabaseManager:
         """, (movimiento_id,))
         row = cur.fetchone()
         conn.close()
-        return dict(row) if row else None
+        if not row:
+            return None
+        return self._aplicar_resguardante_asignado(dict(row))
 
     def obtener_prestamo(self, prestamo_id: int) -> Optional[Dict]:
         conn = self._connect()
@@ -2998,12 +3064,12 @@ class DatabaseManager:
             "firma_recepcion": None,
             "devuelto": 0,
             "observaciones": row["notas"],
-            "resguardante_nombre": row["solicitante_nombre"],
-            "resguardante_id": row["solicitante_id"],
+            "resguardante_nombre": row["propietario_nombre"],
+            "resguardante_id": row["propietario_id"],
             "placa_unidad": row["placa_unidad"],
             "marca": row["marca"],
             "modelo": row["modelo"],
-            "responsable_vehiculo": row["responsable_nombre"] or row["solicitante_nombre"],
+            "responsable_vehiculo": row["responsable_nombre"] or row["propietario_nombre"],
             "vehiculo_id": row["vehiculo_id"],
             "responsable_id": row["responsable_id"],
             "no_pasajeros": row["no_pasajeros"],

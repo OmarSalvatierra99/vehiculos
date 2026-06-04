@@ -63,7 +63,7 @@
                 data-marca="{{ vehiculo.marca }}"
                 data-modelo="{{ vehiculo.modelo }}"
                 data-placa="{{ vehiculo.placa }}"
-                data-propietario="{{ usuario }}">
+                data-propietario="{{ vehiculo.propietarios_nombres or usuario }}">
                 {{ vehiculo.placa }}
               </option>
               {% endfor %}
@@ -77,6 +77,7 @@
                 data-marca="{{ vehiculo.marca }}"
                 data-modelo="{{ vehiculo.modelo }}"
                 data-placa="{{ vehiculo.placa }}"
+                data-propietario="{{ vehiculo.propietario_nombre }}"
                 data-privado="true">
                 {{ vehiculo.placa }}
               </option>
@@ -103,8 +104,8 @@
           </div>
         </div>
         <label class="full">
-          Nombre del resguardante
-          <input type="text" value="{{ usuario }}" readonly>
+          Resguardante asignado
+          <input type="text" id="resguardante_nombre_display" value="" readonly>
         </label>
       </fieldset>
 
@@ -342,6 +343,7 @@
   const unidadPlaca = document.getElementById("unidad_placa");
   const unidadModelo = document.getElementById("unidad_modelo");
   const unidadPropietario = document.getElementById("unidad_propietario");
+  const resguardanteDisplay = document.getElementById("resguardante_nombre_display");
   const solicitudFechaSection = document.getElementById("solicitud_fecha_section");
   const fechaSolicitudInput = document.getElementById("fecha_solicitud");
   const observacionesSection = document.getElementById("observaciones_section");
@@ -363,17 +365,16 @@
       unidadPlaca.textContent = "Seleccione una unidad";
       unidadModelo.textContent = "-";
       unidadPropietario.textContent = "-";
+      if (resguardanteDisplay) resguardanteDisplay.value = "";
       return;
     }
     unidadPlaca.textContent = selected.dataset.placa || "Unidad seleccionada";
     const marca = selected.dataset.marca || "-";
     const modelo = selected.dataset.modelo || "-";
     unidadModelo.textContent = `${marca} ${modelo}`.trim();
-    if (selected.dataset.privado === "true") {
-      unidadPropietario.textContent = "-";
-      return;
-    }
-    unidadPropietario.textContent = selected.dataset.propietario || "-";
+    const propietario = selected.dataset.propietario || "-";
+    unidadPropietario.textContent = propietario;
+    if (resguardanteDisplay) resguardanteDisplay.value = propietario === "-" ? "" : propietario;
   };
 
   const ensureVehiculoEmptyOption = (message) => {

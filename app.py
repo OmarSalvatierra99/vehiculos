@@ -26,17 +26,6 @@ from config import get_config
 from scripts.utils import DatabaseManager, MOTIVOS_SALIDA_VALIDOS
 
 
-RESGUARDANTES_REPORTE_POR_PLACA = {
-    "XB-3501-D": "Omar Alfredo Castro Orozco",
-    "XB-3502-D": "Ramos Martín Quiebras Techalotzi",
-    "XB-3503-D": "José Miguel Ángel Morales Vásquez",
-    "XVZ-335-C": "Ramos Martín Quiebras Techalotzi",
-    "XVZ-343-C": "José Miguel Ángel Morales Vásquez",
-    # Placa del Gol Sedán como está actualmente registrada en la base.
-    "XXK-741-D": "José Miguel Ángel Morales Vásquez",
-}
-
-
 def create_app(config_name: str = None) -> Flask:
     """Factory para crear y configurar la aplicacion Flask."""
     app = Flask(__name__)
@@ -151,22 +140,6 @@ def _filtrar_entes(entes: List[dict], permitidos: List[str]) -> List[dict]:
 
 def _filtrar_vehiculos(items: List[dict]) -> List[dict]:
     return [item for item in items if item.get("categoria") == "VEHICULO"]
-
-
-def _aplicar_resguardante_reporte(movimiento: Optional[dict]) -> Optional[dict]:
-    if not movimiento:
-        return movimiento
-    placa = (movimiento.get("placa_unidad") or "").strip().upper()
-    resguardante = RESGUARDANTES_REPORTE_POR_PLACA.get(placa)
-    if resguardante:
-        movimiento["resguardante_nombre"] = resguardante
-    return movimiento
-
-
-def _aplicar_resguardantes_reporte(movimientos: List[dict]) -> List[dict]:
-    for movimiento in movimientos:
-        _aplicar_resguardante_reporte(movimiento)
-    return movimientos
 
 
 def _normalizar_rol(rol: str) -> str:
@@ -623,8 +596,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
                 ),
             )
 
-        if not form_data["resguardante_nombre"]:
-            return _render_error("Falta capturar el nombre del resguardante.")
         if not form_data["vehiculo_id"].isdigit():
             return _render_error("Falta seleccionar una unidad disponible.")
         if not form_data["responsable_auditor_id"].isdigit():
@@ -648,7 +619,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
         ok, data = db_manager.crear_movimiento_emergencia(
             session.get("usuario_id"),
-            form_data["resguardante_nombre"],
             int(form_data["vehiculo_id"]),
             int(form_data["responsable_auditor_id"]),
             no_pasajeros,
@@ -1068,7 +1038,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         movimiento = db_manager.obtener_movimiento(mov_id)
         if not movimiento:
             return redirect(url_for("dashboard"))
-        _aplicar_resguardante_reporte(movimiento)
         can_print = session.get("rol") == "admin"
         fecha_larga = _fecha_larga_es(movimiento.get("fecha_solicitud"))
         return render_template(
@@ -1085,7 +1054,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         movimiento = db_manager.obtener_prestamo(prestamo_id)
         if not movimiento:
             return redirect(url_for("dashboard"))
-        _aplicar_resguardante_reporte(movimiento)
         can_print = session.get("rol") == "admin"
         fecha_larga = _fecha_larga_es(movimiento.get("fecha_solicitud"))
         return render_template(
@@ -1106,7 +1074,6 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             session.get("usuario_id"),
             fecha,
         )
-        movimientos = _aplicar_resguardantes_reporte(movimientos)
         fecha_larga = _fecha_larga_es(fecha)
         return render_template(
             "reporte_diario.html",
