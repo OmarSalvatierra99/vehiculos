@@ -830,6 +830,16 @@ textarea {
   color: var(--alert);
 }
 
+.badge.obra {
+  background: #e1f0e8;
+  color: #1f6b46;
+}
+
+.badge.financiero {
+  background: #e8edf5;
+  color: #315377;
+}
+
 .alert {
   background: #f7e5e4;
   color: var(--alert);

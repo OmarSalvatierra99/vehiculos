@@ -23,7 +23,7 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 
 from config import get_config
-from scripts.utils import DatabaseManager, MOTIVOS_SALIDA_VALIDOS
+from scripts.utils import CATEGORIAS_VEHICULO, DatabaseManager, MOTIVOS_SALIDA_VALIDOS
 
 
 def create_app(config_name: str = None) -> Flask:
@@ -427,6 +427,7 @@ def _build_admin_context(
     if rol == "monitor":
         vehiculos = db_manager.listar_vehiculos_con_propietarios()
         vehiculos_emergencia = db_manager.listar_vehiculos_disponibles_con_propietarios(fecha_hoy)
+        usuarios_resguardo = db_manager.listar_usuarios_resguardo()
         ocupados_auditores = db_manager.obtener_auditores_ocupados(fecha_hoy)
         auditores_emergencia = [
             item for item in db_manager.listar_auditores()
@@ -436,6 +437,7 @@ def _build_admin_context(
     else:
         vehiculos = db_manager.listar_vehiculos()
         vehiculos_emergencia = []
+        usuarios_resguardo = []
         auditores_emergencia = []
         entes = []
     responsables = db_manager.listar_responsables()
@@ -460,6 +462,8 @@ def _build_admin_context(
         "today": date.today().isoformat(),
         "fecha_consulta": fecha_filtro,
         "vehiculos_emergencia": vehiculos_emergencia,
+        "usuarios_resguardo": usuarios_resguardo,
+        "categorias_vehiculo": CATEGORIAS_VEHICULO,
         "auditores_emergencia": auditores_emergencia,
         "entes": entes,
         "motivos_salida": MOTIVOS_SALIDA_VALIDOS,
@@ -631,6 +635,43 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return _render_error(data.get("mensaje") if isinstance(data, dict) else str(data))
 
         return redirect(url_for("reporte_movimiento", mov_id=data["movimiento_id"]))
+
+    @app.route("/vehiculos/reasignar", methods=["POST"])
+    def vehiculos_reasignar():
+        if session.get("rol") != "monitor":
+            return redirect(url_for("dashboard"))
+
+        fecha = request.form.get("fecha", "").strip()
+        vehiculo_id_txt = request.form.get("vehiculo_id", "").strip()
+        usuario_destino_txt = request.form.get("usuario_destino_id", "").strip()
+        categoria = request.form.get("categoria", "").strip()
+        modo = request.form.get("modo", "mover").strip()
+
+        def _render_error(mensaje: str):
+            return render_template(
+                "admin.html",
+                usuario=session.get("nombre"),
+                rol=session.get("rol"),
+                error=mensaje,
+                **_build_admin_context(app, db_manager, session.get("rol"), fecha),
+            )
+
+        if not vehiculo_id_txt.isdigit():
+            return _render_error("Falta seleccionar el vehiculo a reasignar.")
+        if not usuario_destino_txt.isdigit():
+            return _render_error("Falta seleccionar el nuevo resguardante.")
+        if categoria not in CATEGORIAS_VEHICULO:
+            return _render_error("La categoria del vehiculo no es valida.")
+
+        ok, mensaje = db_manager.reasignar_vehiculo(
+            int(vehiculo_id_txt),
+            int(usuario_destino_txt),
+            categoria,
+            modo,
+        )
+        if not ok:
+            return _render_error(mensaje)
+        return _redirect_admin_con_fecha(fecha)
 
     @app.route("/solicitar", methods=["POST"])
     def solicitar():
@@ -922,11 +963,13 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         placa = request.form.get("placa")
         marca = request.form.get("marca")
         modelo = request.form.get("modelo")
+        categoria = request.form.get("categoria")
 
         ok, mensaje = db_manager.crear_vehiculo(
             placa,
             marca,
             modelo,
+            categoria,
         )
         if not ok:
             movimientos = db_manager.listar_movimientos()

@@ -32,6 +32,14 @@
         Modelo
         <input type="text" name="modelo" required>
       </label>
+      <label class="full">
+        Categoria
+        <select name="categoria" required>
+          {% for categoria in categorias_vehiculo %}
+          <option value="{{ categoria }}">{{ categoria }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <div class="actions full">
         <button class="btn primary" type="submit">Registrar vehiculo</button>
       </div>
@@ -42,17 +50,21 @@
     <h2>Vehiculos vigentes</h2>
     <p class="subtitle">Control de unidades oficiales.</p>
     {% if vehiculos %}
-    <div class="table table-3">
+    <div class="table table-4">
       <div class="table-row header">
         <span>Placa</span>
         <span>Marca</span>
         <span>Modelo</span>
+        <span>Categoria</span>
       </div>
       {% for vehiculo in vehiculos %}
       <div class="table-row">
         <span class="mono">{{ vehiculo.placa }}</span>
         <span>{{ vehiculo.marca }}</span>
         <span>{{ vehiculo.modelo }}</span>
+        <span>
+          <span class="badge {{ 'obra' if vehiculo.categoria == 'Obra' else 'financiero' }}">{{ vehiculo.categoria }}</span>
+        </span>
       </div>
       {% endfor %}
     </div>

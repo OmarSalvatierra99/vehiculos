@@ -63,8 +63,9 @@
                 data-marca="{{ vehiculo.marca }}"
                 data-modelo="{{ vehiculo.modelo }}"
                 data-placa="{{ vehiculo.placa }}"
+                data-categoria="{{ vehiculo.categoria }}"
                 data-propietario="{{ vehiculo.propietarios_nombres or usuario }}">
-                {{ vehiculo.placa }}
+                {{ vehiculo.placa }} · {{ vehiculo.categoria }}
               </option>
               {% endfor %}
             </optgroup>
@@ -77,9 +78,10 @@
                 data-marca="{{ vehiculo.marca }}"
                 data-modelo="{{ vehiculo.modelo }}"
                 data-placa="{{ vehiculo.placa }}"
+                data-categoria="{{ vehiculo.categoria }}"
                 data-propietario="{{ vehiculo.propietario_nombre }}"
                 data-privado="true">
-                {{ vehiculo.placa }}
+                {{ vehiculo.placa }} · {{ vehiculo.categoria }}
               </option>
               {% endfor %}
             </optgroup>

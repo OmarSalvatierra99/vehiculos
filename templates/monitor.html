@@ -15,16 +15,20 @@
     <h2>Vehiculos disponibles</h2>
     <p class="subtitle">Unidades listas para asignacion inmediata.</p>
     {% if items %}
-    <div class="table table-3">
+    <div class="table table-4">
       <div class="table-row header">
         <span>Placa</span>
         <span>Marca</span>
+        <span>Categoria</span>
         <span>Disponible</span>
       </div>
       {% for item in items %}
       <div class="table-row">
         <span class="mono">{{ item.placa }}</span>
         <span>{{ item.marca }} {{ item.modelo }}</span>
+        <span>
+          <span class="badge {{ 'obra' if item.categoria == 'Obra' else 'financiero' }}">{{ item.categoria }}</span>
+        </span>
         <span>Si</span>
       </div>
       {% endfor %}

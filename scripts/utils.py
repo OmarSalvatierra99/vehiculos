@@ -37,6 +37,21 @@ MOTIVOS_SALIDA_VALIDOS = (
 
 PLACAS_SOLO_PROPIETARIO = {"XVZ-353-C"}
 
+CATEGORIA_VEHICULO_OBRA = "Obra"
+CATEGORIA_VEHICULO_FINANCIERO = "Financiero"
+CATEGORIAS_VEHICULO = (
+    CATEGORIA_VEHICULO_OBRA,
+    CATEGORIA_VEHICULO_FINANCIERO,
+)
+PLACAS_OBRA = {
+    "XB-3501-D",
+    "XB-3502-D",
+    "XB-3503-D",
+    "XC-8407-C",
+    "XVZ-335-C",
+    "XXK-741-D",
+}
+
 AUDITOR_RUBEN_MENDEZ_CANONICO = "C.P. Rubén Jesús Méndez Arámbula"
 AUDITOR_RUBEN_MENDEZ_CLAVE = "RUBEN_JESUS_MENDEZ_ARAMBULA"
 
@@ -66,6 +81,35 @@ def _clave_ente_canonica(valor: Optional[str]) -> str:
         return ENTE_CLAVE_SM
     return clave
 
+
+def _normalizar_categoria_vehiculo(valor: Optional[str]) -> str:
+    clave = _normalizar_clave(valor)
+    if clave in {"OBRA", "OBRAS", "AREA_DE_OBRA"}:
+        return CATEGORIA_VEHICULO_OBRA
+    if clave in {"FINANCIERO", "FINANCIERA", "FINANZAS", "AREA_FINANCIERA"}:
+        return CATEGORIA_VEHICULO_FINANCIERO
+    return CATEGORIA_VEHICULO_FINANCIERO
+
+
+def _categoria_por_placa(placa: str) -> str:
+    if (placa or "").strip().upper() in PLACAS_OBRA:
+        return CATEGORIA_VEHICULO_OBRA
+    return CATEGORIA_VEHICULO_FINANCIERO
+
+
+def _variantes_ente(valor: Optional[str]) -> List[str]:
+    if valor is None:
+        return []
+    texto = str(valor).strip()
+    if not texto:
+        return []
+    candidatos = [
+        texto,
+        texto.upper(),
+        _clave_ente_canonica(texto),
+        _normalizar_clave(texto),
+    ]
+    return list(dict.fromkeys(candidato for candidato in candidatos if candidato))
 
 
 def _parse_date(valor: Optional[str]) -> Optional[str]:
@@ -303,6 +347,7 @@ class DatabaseManager:
         logger.info("Base de datos en uso: %s", Path(self.db_path).resolve())
         self._init_db()
         self._migrate_schema()
+        self._ensure_vehiculos_columns()
         self._ensure_usuarios_columns()
         self._ensure_movimientos_columns()
         self._ensure_prestamos_columns()
@@ -386,6 +431,7 @@ class DatabaseManager:
                 placa TEXT UNIQUE NOT NULL,
                 modelo TEXT NOT NULL,
                 marca TEXT NOT NULL,
+                categoria TEXT NOT NULL DEFAULT 'Financiero',
                 activo INTEGER DEFAULT 1
             );
 
@@ -545,6 +591,30 @@ class DatabaseManager:
         cur.execute("DROP TABLE IF EXISTS inventario_items")
         cur.execute("DROP TABLE IF EXISTS notificaciones")
         cur.execute("DROP TABLE IF EXISTS movimientos_pasajeros")
+        conn.commit()
+        conn.close()
+
+    def _ensure_vehiculos_columns(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(vehiculos)")
+        existentes = {row["name"] for row in cur.fetchall()}
+        categoria_agregada = False
+        if "categoria" not in existentes:
+            cur.execute("ALTER TABLE vehiculos ADD COLUMN categoria TEXT NOT NULL DEFAULT 'Financiero'")
+            categoria_agregada = True
+        cur.execute("""
+            UPDATE vehiculos
+            SET categoria = ?
+            WHERE TRIM(COALESCE(categoria, '')) = ''
+        """, (CATEGORIA_VEHICULO_FINANCIERO,))
+        if categoria_agregada:
+            placeholders = ",".join(["?"] * len(PLACAS_OBRA))
+            cur.execute(f"""
+                UPDATE vehiculos
+                SET categoria = ?
+                WHERE UPPER(placa) IN ({placeholders})
+            """, (CATEGORIA_VEHICULO_OBRA, *sorted(PLACAS_OBRA)))
         conn.commit()
         conn.close()
 
@@ -804,6 +874,51 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def _resolver_destinos_cursor(self, cur, ruta_destinos: List[str]) -> Tuple[List[str], Dict[str, str], List[str]]:
+        entradas = [
+            str(clave).strip()
+            for clave in ruta_destinos
+            if clave and str(clave).strip()
+        ]
+        if not entradas:
+            return [], {}, []
+
+        cur.execute("""
+            SELECT clave, nombre
+            FROM entes
+            WHERE activo=1
+        """)
+        indice: Dict[str, str] = {}
+        nombres: Dict[str, str] = {}
+        for row in cur.fetchall():
+            clave = (row["clave"] or "").strip()
+            if not clave:
+                continue
+            nombre = (row["nombre"] or "").strip()
+            nombres[clave] = nombre
+            variantes = _variantes_ente(clave) + _variantes_ente(nombre)
+            for variante in variantes:
+                indice.setdefault(variante, clave)
+
+        destinos: List[str] = []
+        faltantes: List[str] = []
+        for entrada in entradas:
+            clave_resuelta = None
+            for variante in _variantes_ente(entrada):
+                clave_resuelta = indice.get(variante)
+                if clave_resuelta:
+                    break
+            if clave_resuelta:
+                destinos.append(clave_resuelta)
+            else:
+                faltantes.append(entrada)
+
+        nombres_destinos = {
+            clave: nombres.get(clave, "")
+            for clave in set(destinos)
+        }
+        return destinos, nombres_destinos, faltantes
+
     def obtener_usuario_id(self, usuario: str) -> Optional[int]:
         if not usuario:
             return None
@@ -949,7 +1064,7 @@ class DatabaseManager:
             conn.close()
             return
 
-        vehiculos = [
+        vehiculos_base = [
             ("XVZ-360-C", "Versa Sense", "NISSAN"),
             ("XVZ-373-C", "Versa Sense", "NISSAN"),
             ("XVZ-351-C", "Versa", "NISSAN"),
@@ -970,9 +1085,13 @@ class DatabaseManager:
             ("XB-3502-D", "700", "RAM"),
             ("XB-3503-D", "700", "RAM"),
         ]
+        vehiculos = [
+            (placa, modelo, marca, _categoria_por_placa(placa))
+            for placa, modelo, marca in vehiculos_base
+        ]
         cur.executemany("""
-            INSERT INTO vehiculos (placa, modelo, marca, activo)
-            VALUES (?, ?, ?, 1)
+            INSERT INTO vehiculos (placa, modelo, marca, categoria, activo)
+            VALUES (?, ?, ?, ?, 1)
         """, vehiculos)
         conn.commit()
         conn.close()
@@ -1008,10 +1127,9 @@ class DatabaseManager:
                 "XVZ-335-C",
                 "XB-3501-D",
                 "XB-3502-D",
-                "XB-3503-D",
             ]),
             ("mike", ["XB-3501-D", "XB-3502-D", "XB-3503-D"]),
-            ("ramos", ["XB-3501-D", "XB-3502-D", "XB-3503-D"]),
+            ("ramos", ["XB-3501-D", "XB-3502-D"]),
             ("angel", ["XVZ-353-C", "XVZ-370-C", "XVZ-356-C", "XTR-479-E"]),
             ("juan", ["XVZ-359-C", "XVZ-371-C", "XVZ-349-C"]),
         ]
@@ -1342,7 +1460,7 @@ class DatabaseManager:
 
         if usuario_id and tiene_relacion:
             cur.execute("""
-                SELECT v.id, v.placa, v.modelo, v.marca,
+                SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
                        COALESCE((
                            SELECT group_concat(nombre, ', ')
                            FROM (
@@ -1360,7 +1478,7 @@ class DatabaseManager:
             """, (usuario_id,))
         else:
             cur.execute("""
-                SELECT v.id, v.placa, v.modelo, v.marca,
+                SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
                        COALESCE((
                            SELECT group_concat(nombre, ', ')
                            FROM (
@@ -1408,7 +1526,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT v.id, v.placa, v.modelo, v.marca,
+            SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
                    COALESCE(GROUP_CONCAT(u.nombre, ', '), '') AS propietarios_nombres
             FROM vehiculos v
             LEFT JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
@@ -1429,7 +1547,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT v.id, v.placa, v.modelo, v.marca,
+            SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
                    COALESCE(GROUP_CONCAT(u.nombre, ', '), '') AS propietarios_nombres
             FROM vehiculos v
             LEFT JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
@@ -1466,7 +1584,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT v.id, v.placa, v.modelo, v.marca
+            SELECT v.id, v.placa, v.modelo, v.marca, v.categoria
             FROM vehiculos v
             WHERE v.activo=1
               AND NOT EXISTS (
@@ -1503,7 +1621,7 @@ class DatabaseManager:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT v.id, v.placa, v.modelo, v.marca,
+            SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
                    u.id AS propietario_id, u.nombre AS propietario_nombre
             FROM vehiculos v
             JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
@@ -1976,18 +2094,11 @@ class DatabaseManager:
                 conn.close()
                 return False, "Uno o mas pasajeros ya estan asignados como piloto o pasajero para esa fecha."
 
-        destinos = [_clave_ente_canonica(clave) for clave in ruta_destinos if clave and clave.strip()]
+        destinos, entes_validos_map, destinos_faltantes = self._resolver_destinos_cursor(cur, ruta_destinos)
         if not destinos:
             conn.close()
             return False, "Falta el dato de ruta."
-        placeholders_dest = ",".join(["?"] * len(destinos))
-        cur.execute(f"""
-            SELECT clave, nombre
-            FROM entes
-            WHERE clave IN ({placeholders_dest}) AND activo=1
-        """, destinos)
-        entes_validos_map = {row["clave"]: row["nombre"] for row in cur.fetchall()}
-        if set(entes_validos_map.keys()) != set(destinos):
+        if destinos_faltantes:
             conn.close()
             return False, "Destinos no encontrados en catalogo de entes."
         destinos_legibles = [
@@ -2057,19 +2168,41 @@ class DatabaseManager:
         conn.close()
         return data
 
-    def crear_vehiculo(self, placa: str, marca: str, modelo: str) -> Tuple[bool, str]:
+    def listar_usuarios_resguardo(self) -> List[Dict]:
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, nombre, usuario
+            FROM usuarios
+            WHERE activo=1
+              AND LOWER(COALESCE(rol, '')) != 'monitor'
+            ORDER BY nombre
+        """)
+        data = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return data
+
+    def crear_vehiculo(
+        self,
+        placa: str,
+        marca: str,
+        modelo: str,
+        categoria: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         if not placa or not marca or not modelo:
             return False, "Faltan datos requeridos."
+        categoria_txt = _normalizar_categoria_vehiculo(categoria)
         conn = self._connect()
         cur = conn.cursor()
         try:
             cur.execute("""
-                INSERT INTO vehiculos (placa, modelo, marca, activo)
-                VALUES (?, ?, ?, 1)
+                INSERT INTO vehiculos (placa, modelo, marca, categoria, activo)
+                VALUES (?, ?, ?, ?, 1)
             """, (
                 placa.strip().upper(),
                 modelo.strip(),
                 marca.strip().upper(),
+                categoria_txt,
             ))
             conn.commit()
         except sqlite3.IntegrityError:
@@ -2077,6 +2210,58 @@ class DatabaseManager:
             return False, "La placa ya existe."
         conn.close()
         return True, "Vehiculo registrado correctamente."
+
+    def reasignar_vehiculo(
+        self,
+        vehiculo_id: int,
+        usuario_destino_id: int,
+        categoria: Optional[str],
+        modo: str = "mover",
+    ) -> Tuple[bool, str]:
+        categoria_txt = _normalizar_categoria_vehiculo(categoria)
+        modo_txt = (modo or "mover").strip().lower()
+        if modo_txt not in {"mover", "agregar"}:
+            modo_txt = "mover"
+
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id
+            FROM vehiculos
+            WHERE id=? AND activo=1
+        """, (vehiculo_id,))
+        if not cur.fetchone():
+            conn.close()
+            return False, "Vehiculo no encontrado."
+
+        cur.execute("""
+            SELECT id
+            FROM usuarios
+            WHERE id=? AND activo=1
+              AND LOWER(COALESCE(rol, '')) != 'monitor'
+        """, (usuario_destino_id,))
+        if not cur.fetchone():
+            conn.close()
+            return False, "Resguardante no encontrado."
+
+        if modo_txt == "mover":
+            cur.execute("DELETE FROM usuarios_vehiculos WHERE vehiculo_id=?", (vehiculo_id,))
+
+        cur.execute("""
+            INSERT OR IGNORE INTO usuarios_vehiculos (usuario_id, vehiculo_id)
+            VALUES (?, ?)
+        """, (usuario_destino_id, vehiculo_id))
+        cur.execute("""
+            UPDATE vehiculos
+            SET categoria=?
+            WHERE id=?
+        """, (categoria_txt, vehiculo_id))
+        conn.commit()
+        conn.close()
+
+        if modo_txt == "agregar":
+            return True, "Resguardante agregado correctamente."
+        return True, "Vehiculo reasignado correctamente."
 
     # -------------------------------------------------------
     # Movimientos
@@ -2153,7 +2338,7 @@ class DatabaseManager:
             return False, {"mensaje": "Usuario no encontrado."}
 
         cur.execute("""
-            SELECT id, placa, modelo, marca
+            SELECT id, placa, modelo, marca, categoria
             FROM vehiculos
             WHERE id=? AND activo=1
         """, (vehiculo_id,))
@@ -2232,23 +2417,16 @@ class DatabaseManager:
                 conn.close()
                 return False, {"mensaje": "Uno o mas pasajeros ya estan asignados como piloto o pasajero para esa fecha."}
 
-        destinos = [_clave_ente_canonica(clave) for clave in ruta_destinos if clave and clave.strip()]
+        destinos, _, destinos_faltantes = self._resolver_destinos_cursor(cur, ruta_destinos)
         if not destinos:
             conn.close()
             return False, {"mensaje": "Falta el dato de ruta."}
-        placeholders_dest = ",".join(["?"] * len(destinos))
-        cur.execute(f"""
-            SELECT clave
-            FROM entes
-            WHERE clave IN ({placeholders_dest}) AND activo=1
-        """, destinos)
-        entes_validos = {row["clave"] for row in cur.fetchall()}
-        if entes_validos != set(destinos):
+        if destinos_faltantes:
             conn.close()
             return False, {"mensaje": "Destinos no encontrados en catalogo de entes."}
         folio = None
         receptor_nombre = receptor_nombre.strip() or resguardante["nombre"]
-        ente_clave = ente_clave or destinos[0]
+        ente_clave = destinos[0]
 
         max_intentos = 3
         for intento in range(max_intentos):
@@ -2761,7 +2939,7 @@ class DatabaseManager:
             reservas_por_vehiculo.setdefault(vehiculo_id, set()).update(fechas_reserva)
 
         cur.execute("""
-            SELECT v.id, v.placa, v.marca, v.modelo,
+            SELECT v.id, v.placa, v.marca, v.modelo, v.categoria,
                    COALESCE(GROUP_CONCAT(u.nombre, ', '), '') AS propietarios
             FROM vehiculos v
             LEFT JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id

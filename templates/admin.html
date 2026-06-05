@@ -221,9 +221,10 @@
                 data-plate="{{ vehiculo.placa }}"
                 data-brand="{{ vehiculo.marca }}"
                 data-model="{{ vehiculo.modelo }}"
+                data-category="{{ vehiculo.categoria }}"
                 {% if emergencia_form.vehiculo_id|string == vehiculo.id|string %}selected{% endif %}
               >
-                {{ vehiculo.placa }} · {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietarios_nombres or 'Sin asignacion' }}
+                {{ vehiculo.placa }} · {{ vehiculo.categoria }} · {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietarios_nombres or 'Sin asignacion' }}
               </option>
               {% endfor %}
             </select>
@@ -356,16 +357,75 @@
 </section>
 {% endif %}
 
+{% if rol == "monitor" %}
+<section class="card">
+  <div class="card-header">
+    <div>
+      <h2>Reasignacion de vehiculos</h2>
+      <p class="subtitle">Mueva una unidad a un resguardante y conserve la categoria operativa.</p>
+    </div>
+  </div>
+  {% if vehiculos and usuarios_resguardo %}
+  <form method="post" action="{{ url_for('vehiculos_reasignar') }}" class="form">
+    <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+    <div class="form-section">
+      <label class="full">
+        <span>Vehiculo</span>
+        <select name="vehiculo_id" required>
+          <option value="">Seleccione una unidad</option>
+          {% for vehiculo in vehiculos %}
+          <option value="{{ vehiculo.id }}">
+            {{ vehiculo.placa }} · {{ vehiculo.categoria }} · {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietarios_nombres or 'Sin asignacion' }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Nuevo resguardante</span>
+        <select name="usuario_destino_id" required>
+          <option value="">Seleccione un usuario</option>
+          {% for usuario_item in usuarios_resguardo %}
+          <option value="{{ usuario_item.id }}">{{ usuario_item.nombre }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Categoria</span>
+        <select name="categoria" required>
+          {% for categoria in categorias_vehiculo %}
+          <option value="{{ categoria }}">{{ categoria }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Accion</span>
+        <select name="modo" required>
+          <option value="mover">Mover: reemplaza resguardos actuales</option>
+          <option value="agregar">Agregar: conserva resguardos actuales</option>
+        </select>
+      </label>
+    </div>
+    <div class="actions">
+      <button class="btn primary" type="submit">Aplicar reasignacion</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="empty">No hay vehiculos o usuarios disponibles para reasignar.</p>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="grid">
   <div class="card">
     <h2>Unidades registradas</h2>
     <p class="subtitle">Relacion oficial de placas activas.</p>
     {% if vehiculos %}
-    <div class="table {% if rol == 'monitor' %}table-4{% else %}table-3{% endif %}">
+    <div class="table {% if rol == 'monitor' %}table-5{% else %}table-4{% endif %}">
       <div class="table-row header">
         <span>Placa</span>
         <span>Modelo</span>
         <span>Marca</span>
+        <span>Categoria</span>
         {% if rol == "monitor" %}
         <span>Asignado a</span>
         {% endif %}
@@ -375,6 +435,9 @@
         <span class="mono">{{ vehiculo.placa }}</span>
         <span>{{ vehiculo.modelo }}</span>
         <span>{{ vehiculo.marca }}</span>
+        <span>
+          <span class="badge {{ 'obra' if vehiculo.categoria == 'Obra' else 'financiero' }}">{{ vehiculo.categoria }}</span>
+        </span>
         {% if rol == "monitor" %}
         <span>{{ vehiculo.propietarios_nombres or "Sin asignacion" }}</span>
         {% endif %}
