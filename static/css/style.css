@@ -991,6 +991,38 @@ textarea {
   font-weight: 600;
 }
 
+.unit-category-list {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.unit-category-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.unit-category-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.unit-category-title strong {
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+}
+
 .table {
   display: grid;
   gap: 8px;

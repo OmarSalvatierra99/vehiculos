@@ -280,6 +280,26 @@ def _agrupar_vehiculos_por_resguardante(vehiculos: List[dict]) -> List[dict]:
     return grupos
 
 
+def _agrupar_vehiculos_por_categoria(vehiculos: List[dict]) -> List[dict]:
+    grupos_por_categoria = {categoria: [] for categoria in CATEGORIAS_VEHICULO}
+    ordenados = sorted(
+        vehiculos,
+        key=lambda item: (
+            CATEGORIAS_VEHICULO.index(item.get("categoria"))
+            if item.get("categoria") in CATEGORIAS_VEHICULO else len(CATEGORIAS_VEHICULO),
+            (item.get("placa") or "").casefold(),
+        ),
+    )
+    for vehiculo in ordenados:
+        categoria = vehiculo.get("categoria") if vehiculo.get("categoria") in CATEGORIAS_VEHICULO else "Sin categoria"
+        grupos_por_categoria.setdefault(categoria, []).append(vehiculo)
+    return [
+        {"categoria": categoria, "vehiculos": items}
+        for categoria, items in grupos_por_categoria.items()
+        if items
+    ]
+
+
 def _empty_emergencia_form() -> dict:
     return {
         "resguardante_nombre": "",
@@ -480,6 +500,7 @@ def _build_admin_context(
         "movimientos": alertas,
         "vehiculos": vehiculos,
         "vehiculos_reasignacion_grupos": _agrupar_vehiculos_por_resguardante(vehiculos),
+        "vehiculos_unidades_grupos": _agrupar_vehiculos_por_categoria(vehiculos),
         "responsables": responsables,
         "total_stock": total_stock,
         "total_disponible": total_disponible,
