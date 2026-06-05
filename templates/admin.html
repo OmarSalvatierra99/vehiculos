@@ -32,7 +32,16 @@
   </div>
 </section>
 
-<section class="card">
+{% if rol == "monitor" %}
+<section class="monitor-menu" aria-label="Menu de monitor">
+  <button class="monitor-tab is-active" type="button" data-monitor-tab="movimientos" aria-controls="monitor-panel-movimientos">Movimientos y reportes</button>
+  <button class="monitor-tab" type="button" data-monitor-tab="emergencia" aria-controls="monitor-panel-emergencia">Alta de emergencia</button>
+  <button class="monitor-tab" type="button" data-monitor-tab="reasignacion" aria-controls="monitor-panel-reasignacion">Reasignacion</button>
+  <button class="monitor-tab" type="button" data-monitor-tab="unidades" aria-controls="monitor-panel-unidades">Unidades registradas</button>
+</section>
+{% endif %}
+
+<section class="card {% if rol == 'monitor' %}monitor-panel is-active{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-movimientos" data-monitor-panel="movimientos"{% endif %}>
   <div class="card-header">
     <div>
       <h2>Movimientos y reportes</h2>
@@ -197,7 +206,7 @@
 </section>
 
 {% if rol == "monitor" %}
-<section class="card">
+<section class="card monitor-panel" id="monitor-panel-emergencia" data-monitor-panel="emergencia" hidden>
   <div class="card-header">
     <div>
       <h2>Alta de emergencia</h2>
@@ -357,8 +366,8 @@
 </section>
 {% endif %}
 
-{% if rol == "monitor" %}
-<section class="card">
+{% if rol in ["monitor", "admin"] %}
+<section class="card {% if rol == 'monitor' %}monitor-panel{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-reasignacion" data-monitor-panel="reasignacion" hidden{% endif %}>
   <div class="card-header">
     <div>
       <h2>Reasignacion de vehiculos</h2>
@@ -366,15 +375,19 @@
     </div>
   </div>
   {% if vehiculos and usuarios_resguardo %}
-  <form method="post" action="{{ url_for('vehiculos_reasignar') }}" class="form">
+  <form method="post" action="{{ url_for('vehiculos_reasignar') }}" class="form" id="vehiculo_reasignacion_form">
     <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
     <div class="form-section">
       <label class="full">
         <span>Vehiculo</span>
-        <select name="vehiculo_id" required>
+        <select name="vehiculo_id" id="reasignacion_vehiculo_id" required>
           <option value="">Seleccione una unidad</option>
           {% for vehiculo in vehiculos %}
-          <option value="{{ vehiculo.id }}">
+          <option
+            value="{{ vehiculo.id }}"
+            data-category="{{ vehiculo.categoria }}"
+            data-owner="{{ vehiculo.propietarios_nombres or 'Sin asignacion' }}"
+          >
             {{ vehiculo.placa }} · {{ vehiculo.categoria }} · {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietarios_nombres or 'Sin asignacion' }}
           </option>
           {% endfor %}
@@ -391,7 +404,7 @@
       </label>
       <label>
         <span>Categoria</span>
-        <select name="categoria" required>
+        <select name="categoria" id="reasignacion_categoria" required>
           {% for categoria in categorias_vehiculo %}
           <option value="{{ categoria }}">{{ categoria }}</option>
           {% endfor %}
@@ -400,10 +413,19 @@
       <label>
         <span>Accion</span>
         <select name="modo" required>
-          <option value="mover">Mover: reemplaza resguardos actuales</option>
-          <option value="agregar">Agregar: conserva resguardos actuales</option>
+          <option value="mover">Mover: reemplaza el resguardante actual</option>
         </select>
       </label>
+    </div>
+    <div class="unit-summary">
+      <div>
+        <span class="summary-label">Categoria actual</span>
+        <strong id="reasignacion_categoria_actual">-</strong>
+      </div>
+      <div>
+        <span class="summary-label">Resguardo actual</span>
+        <strong id="reasignacion_resguardo_actual">-</strong>
+      </div>
     </div>
     <div class="actions">
       <button class="btn primary" type="submit">Aplicar reasignacion</button>
@@ -415,7 +437,7 @@
 </section>
 {% endif %}
 
-<section class="grid">
+<section class="grid {% if rol == 'monitor' %}monitor-panel{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-unidades" data-monitor-panel="unidades" hidden{% endif %}>
   <div class="card">
     <h2>Unidades registradas</h2>
     <p class="subtitle">Relacion oficial de placas activas.</p>
@@ -767,6 +789,58 @@
     pasajerosCombobox?.updateCount();
     rutaCombobox?.updateChips();
     rutaCombobox?.updateCount();
+  })();
+</script>
+{% endif %}
+{% if rol in ["monitor", "admin"] %}
+<script>
+  (() => {
+    const vehiculoSelect = document.getElementById("reasignacion_vehiculo_id");
+    const categoriaSelect = document.getElementById("reasignacion_categoria");
+    const categoriaActual = document.getElementById("reasignacion_categoria_actual");
+    const resguardoActual = document.getElementById("reasignacion_resguardo_actual");
+
+    const syncVehicleCategory = () => {
+      const selected = vehiculoSelect?.selectedOptions?.[0];
+      const category = selected?.dataset.category || "";
+      const owner = selected?.dataset.owner || "";
+      if (selected && vehiculoSelect.value && category && categoriaSelect) {
+        categoriaSelect.value = category;
+      }
+      if (categoriaActual) {
+        categoriaActual.textContent = selected && vehiculoSelect.value ? category || "-" : "-";
+      }
+      if (resguardoActual) {
+        resguardoActual.textContent = selected && vehiculoSelect.value ? owner || "Sin asignacion" : "-";
+      }
+    };
+
+    vehiculoSelect?.addEventListener("change", syncVehicleCategory);
+    syncVehicleCategory();
+
+    const monitorTabs = Array.from(document.querySelectorAll("[data-monitor-tab]"));
+    const monitorPanels = Array.from(document.querySelectorAll("[data-monitor-panel]"));
+    if (!monitorTabs.length || !monitorPanels.length) {
+      return;
+    }
+
+    const setActivePanel = (panelName) => {
+      monitorTabs.forEach((tab) => {
+        const isActive = tab.dataset.monitorTab === panelName;
+        tab.classList.toggle("is-active", isActive);
+        tab.setAttribute("aria-expanded", String(isActive));
+      });
+      monitorPanels.forEach((panel) => {
+        const isActive = panel.dataset.monitorPanel === panelName;
+        panel.classList.toggle("is-active", isActive);
+        panel.hidden = !isActive;
+      });
+    };
+
+    monitorTabs.forEach((tab) => {
+      tab.addEventListener("click", () => setActivePanel(tab.dataset.monitorTab));
+    });
+    setActivePanel("movimientos");
   })();
 </script>
 {% endif %}

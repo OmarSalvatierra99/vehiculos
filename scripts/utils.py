@@ -355,6 +355,7 @@ class DatabaseManager:
         self._seed_usuarios()
         self._seed_vehiculos()
         self._seed_usuarios_vehiculos()
+        self._ensure_usuarios_vehiculos_unicos()
         self._seed_responsables()
         self._seed_auditores()
         self._seed_responsables_auditores()
@@ -494,6 +495,7 @@ class DatabaseManager:
                 usuario_id INTEGER NOT NULL,
                 vehiculo_id INTEGER NOT NULL,
                 PRIMARY KEY (usuario_id, vehiculo_id),
+                UNIQUE (vehiculo_id),
                 FOREIGN KEY(usuario_id) REFERENCES usuarios(id),
                 FOREIGN KEY(vehiculo_id) REFERENCES vehiculos(id)
             );
@@ -615,6 +617,43 @@ class DatabaseManager:
                 SET categoria = ?
                 WHERE UPPER(placa) IN ({placeholders})
             """, (CATEGORIA_VEHICULO_OBRA, *sorted(PLACAS_OBRA)))
+        conn.commit()
+        conn.close()
+
+    def _ensure_usuarios_vehiculos_unicos(self) -> None:
+        conn = self._connect()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT vehiculo_id
+            FROM usuarios_vehiculos
+            GROUP BY vehiculo_id
+            HAVING COUNT(*) > 1
+        """)
+        duplicados = [row["vehiculo_id"] for row in cur.fetchall()]
+        for vehiculo_id in duplicados:
+            cur.execute("""
+                SELECT uv.rowid AS rel_id, uv.usuario_id
+                FROM usuarios_vehiculos uv
+                JOIN usuarios u ON u.id = uv.usuario_id
+                WHERE uv.vehiculo_id=?
+                ORDER BY
+                    CASE WHEN LOWER(u.usuario) = 'omar' THEN 0 ELSE 1 END,
+                    uv.rowid
+            """, (vehiculo_id,))
+            relaciones = cur.fetchall()
+            if not relaciones:
+                continue
+            conservar_id = relaciones[0]["rel_id"]
+            cur.execute("""
+                DELETE FROM usuarios_vehiculos
+                WHERE vehiculo_id=? AND rowid<>?
+            """, (vehiculo_id, conservar_id))
+
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_vehiculos_vehiculo_unico
+            ON usuarios_vehiculos (vehiculo_id)
+        """)
         conn.commit()
         conn.close()
 
@@ -1128,8 +1167,8 @@ class DatabaseManager:
                 "XB-3501-D",
                 "XB-3502-D",
             ]),
-            ("mike", ["XB-3501-D", "XB-3502-D", "XB-3503-D"]),
-            ("ramos", ["XB-3501-D", "XB-3502-D"]),
+            ("mike", ["XB-3503-D"]),
+            ("ramos", []),
             ("angel", ["XVZ-353-C", "XVZ-370-C", "XVZ-356-C", "XTR-479-E"]),
             ("juan", ["XVZ-359-C", "XVZ-371-C", "XVZ-349-C"]),
         ]
@@ -2219,9 +2258,6 @@ class DatabaseManager:
         modo: str = "mover",
     ) -> Tuple[bool, str]:
         categoria_txt = _normalizar_categoria_vehiculo(categoria)
-        modo_txt = (modo or "mover").strip().lower()
-        if modo_txt not in {"mover", "agregar"}:
-            modo_txt = "mover"
 
         conn = self._connect()
         cur = conn.cursor()
@@ -2244,8 +2280,7 @@ class DatabaseManager:
             conn.close()
             return False, "Resguardante no encontrado."
 
-        if modo_txt == "mover":
-            cur.execute("DELETE FROM usuarios_vehiculos WHERE vehiculo_id=?", (vehiculo_id,))
+        cur.execute("DELETE FROM usuarios_vehiculos WHERE vehiculo_id=?", (vehiculo_id,))
 
         cur.execute("""
             INSERT OR IGNORE INTO usuarios_vehiculos (usuario_id, vehiculo_id)
@@ -2259,8 +2294,6 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-        if modo_txt == "agregar":
-            return True, "Resguardante agregado correctamente."
         return True, "Vehiculo reasignado correctamente."
 
     # -------------------------------------------------------

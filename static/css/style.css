@@ -339,6 +339,7 @@ body {
 .form-grid select,
 .form-grid textarea,
 .form input,
+.form select,
 .form textarea {
   padding: 11px 12px;
   border-radius: 10px;
@@ -455,6 +456,41 @@ body {
   color: #7a746b;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.monitor-menu {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.monitor-tab {
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f7f3ee;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.monitor-tab:hover {
+  transform: translateY(-1px);
+}
+
+.monitor-tab.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.monitor-panel[hidden] {
+  display: none;
 }
 
 .week-picker {
@@ -1483,6 +1519,10 @@ textarea {
     text-align: left;
   }
 
+  .monitor-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .gov-header {
     flex-direction: column;
     align-items: flex-start;
@@ -1538,6 +1578,10 @@ textarea {
 
   .form-section legend {
     font-size: 0.95rem;
+  }
+
+  .monitor-tab {
+    min-height: 42px;
   }
 
   .actions {

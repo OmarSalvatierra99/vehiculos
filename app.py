@@ -427,7 +427,6 @@ def _build_admin_context(
     if rol == "monitor":
         vehiculos = db_manager.listar_vehiculos_con_propietarios()
         vehiculos_emergencia = db_manager.listar_vehiculos_disponibles_con_propietarios(fecha_hoy)
-        usuarios_resguardo = db_manager.listar_usuarios_resguardo()
         ocupados_auditores = db_manager.obtener_auditores_ocupados(fecha_hoy)
         auditores_emergencia = [
             item for item in db_manager.listar_auditores()
@@ -437,9 +436,12 @@ def _build_admin_context(
     else:
         vehiculos = db_manager.listar_vehiculos()
         vehiculos_emergencia = []
-        usuarios_resguardo = []
         auditores_emergencia = []
         entes = []
+    usuarios_resguardo = (
+        db_manager.listar_usuarios_resguardo()
+        if rol in {"admin", "monitor"} else []
+    )
     responsables = db_manager.listar_responsables()
     total_stock, total_disponible = db_manager.contar_vehiculos_disponibles()
     en_uso = sum(
@@ -638,7 +640,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/vehiculos/reasignar", methods=["POST"])
     def vehiculos_reasignar():
-        if session.get("rol") != "monitor":
+        if session.get("rol") not in {"admin", "monitor"}:
             return redirect(url_for("dashboard"))
 
         fecha = request.form.get("fecha", "").strip()
