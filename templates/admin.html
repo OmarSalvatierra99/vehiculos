@@ -375,8 +375,13 @@
     </div>
   </div>
   {% if vehiculos and usuarios_resguardo %}
+  <div class="reassign-filter-bar" aria-label="Filtrar vehiculos por categoria">
+    <button class="reassign-filter-option is-active" type="button" data-reassign-filter="all" aria-pressed="true">Todos</button>
+    <button class="reassign-filter-option" type="button" data-reassign-filter="Obra" aria-pressed="false">Obra</button>
+    <button class="reassign-filter-option" type="button" data-reassign-filter="Financiero" aria-pressed="false">Financiero</button>
+  </div>
   <div class="reassign-list">
-    <div class="reassign-row reassign-row-header">
+    <div class="reassign-row reassign-row-header" data-reassign-header>
       <span>Matricula</span>
       <span>Unidad</span>
       <span>Categoria</span>
@@ -384,39 +389,48 @@
       <span>Nuevo resguardante</span>
       <span>Accion</span>
     </div>
-    {% for vehiculo in vehiculos %}
-    {% set compatibles_lista = usuarios_resguardo_por_categoria.get(vehiculo.categoria, []) %}
-    {% set compatibles = namespace(total=0) %}
-    <form method="post" action="{{ url_for('vehiculos_reasignar') }}" class="reassign-row">
-      <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
-      <input type="hidden" name="modo" value="mover">
-      <input type="hidden" name="vehiculo_id" value="{{ vehiculo.id }}">
-      <input type="hidden" name="categoria" value="{{ vehiculo.categoria }}">
-      <span class="mono">{{ vehiculo.placa }}</span>
-      <span>{{ vehiculo.marca }} {{ vehiculo.modelo }}</span>
-      <span>
-        <span class="badge {{ 'obra' if vehiculo.categoria == 'Obra' else 'financiero' }}">{{ vehiculo.categoria }}</span>
-      </span>
-      <span>{{ vehiculo.propietarios_nombres or "Sin asignacion" }}</span>
-      <label class="reassign-select-label">
-        <span class="sr-only">Nuevo resguardante para {{ vehiculo.placa }}</span>
-        <select name="usuario_destino_id" required>
-          <option value="">Seleccione</option>
-          {% for usuario_item in compatibles_lista %}
-            {% if usuario_item.id|string != vehiculo.propietario_id|string %}
-              {% set compatibles.total = compatibles.total + 1 %}
-              <option value="{{ usuario_item.id }}">{{ usuario_item.nombre }}</option>
+    {% for grupo in vehiculos_reasignacion_grupos %}
+    <div class="reassign-owner-group" data-reassign-owner-group>
+      <div class="reassign-owner-title">
+        <span>Resguardante</span>
+        <strong>{{ grupo.resguardante }}</strong>
+      </div>
+      {% for vehiculo in grupo.vehiculos %}
+      {% set compatibles_lista = usuarios_resguardo_por_categoria.get(vehiculo.categoria, []) %}
+      {% set compatibles = namespace(total=0) %}
+      <form method="post" action="{{ url_for('vehiculos_reasignar') }}" class="reassign-row" data-reassign-row data-reassign-category="{{ vehiculo.categoria }}">
+        <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+        <input type="hidden" name="modo" value="mover">
+        <input type="hidden" name="vehiculo_id" value="{{ vehiculo.id }}">
+        <input type="hidden" name="categoria" value="{{ vehiculo.categoria }}">
+        <span class="mono">{{ vehiculo.placa }}</span>
+        <span>{{ vehiculo.marca }} {{ vehiculo.modelo }}</span>
+        <span>
+          <span class="badge {{ 'obra' if vehiculo.categoria == 'Obra' else 'financiero' }}">{{ vehiculo.categoria }}</span>
+        </span>
+        <span>{{ vehiculo.propietarios_nombres or "Sin asignacion" }}</span>
+        <label class="reassign-select-label">
+          <span class="sr-only">Nuevo resguardante para {{ vehiculo.placa }}</span>
+          <select name="usuario_destino_id" required>
+            <option value="">Seleccione</option>
+            {% for usuario_item in compatibles_lista %}
+              {% if usuario_item.id|string != vehiculo.propietario_id|string %}
+                {% set compatibles.total = compatibles.total + 1 %}
+                <option value="{{ usuario_item.id }}">{{ usuario_item.nombre }}</option>
+              {% endif %}
+            {% endfor %}
+            {% if compatibles.total == 0 %}
+              <option value="" disabled>No hay disponibles</option>
             {% endif %}
-          {% endfor %}
-          {% if compatibles.total == 0 %}
-            <option value="" disabled>No hay disponibles</option>
-          {% endif %}
-        </select>
-      </label>
-      <button class="btn ghost btn-small" type="submit" {% if compatibles.total == 0 %}disabled{% endif %}>Cambiar</button>
-    </form>
+          </select>
+        </label>
+        <button class="btn ghost btn-small" type="submit" {% if compatibles.total == 0 %}disabled{% endif %}>Cambiar</button>
+      </form>
+      {% endfor %}
+    </div>
     {% endfor %}
   </div>
+  <p class="empty reassign-filter-empty" data-reassign-empty hidden>No hay vehiculos en esta categoria.</p>
   {% else %}
   <p class="empty">No hay vehiculos o usuarios disponibles para reasignar.</p>
   {% endif %}
@@ -781,29 +795,69 @@
 {% if rol in ["monitor", "admin"] %}
 <script>
   (() => {
-    const monitorTabs = Array.from(document.querySelectorAll("[data-monitor-tab]"));
-    const monitorPanels = Array.from(document.querySelectorAll("[data-monitor-panel]"));
-    if (!monitorTabs.length || !monitorPanels.length) {
-      return;
-    }
+    const reassignFilters = Array.from(document.querySelectorAll("[data-reassign-filter]"));
+    const reassignRows = Array.from(document.querySelectorAll("[data-reassign-row]"));
+    const reassignGroups = Array.from(document.querySelectorAll("[data-reassign-owner-group]"));
+    const reassignHeader = document.querySelector("[data-reassign-header]");
+    const reassignEmpty = document.querySelector("[data-reassign-empty]");
 
-    const setActivePanel = (panelName) => {
-      monitorTabs.forEach((tab) => {
-        const isActive = tab.dataset.monitorTab === panelName;
-        tab.classList.toggle("is-active", isActive);
-        tab.setAttribute("aria-expanded", String(isActive));
+    const applyReassignFilter = (category) => {
+      const selectedCategory = (category || "all").trim();
+      let visibleRows = 0;
+      reassignFilters.forEach((filter) => {
+        const isActive = filter.dataset.reassignFilter === selectedCategory;
+        filter.classList.toggle("is-active", isActive);
+        filter.setAttribute("aria-pressed", String(isActive));
       });
-      monitorPanels.forEach((panel) => {
-        const isActive = panel.dataset.monitorPanel === panelName;
-        panel.classList.toggle("is-active", isActive);
-        panel.hidden = !isActive;
+      reassignRows.forEach((row) => {
+        const rowCategory = (row.dataset.reassignCategory || "").trim();
+        const isVisible = selectedCategory === "all" || rowCategory === selectedCategory;
+        row.style.display = isVisible ? "" : "none";
+        if (isVisible) {
+          visibleRows += 1;
+        }
       });
+      reassignGroups.forEach((group) => {
+        const hasVisibleRows = Array.from(group.querySelectorAll("[data-reassign-row]"))
+          .some((row) => row.style.display !== "none");
+        group.style.display = hasVisibleRows ? "" : "none";
+      });
+      if (reassignHeader) {
+        reassignHeader.style.display = visibleRows === 0 ? "none" : "";
+      }
+      if (reassignEmpty) {
+        reassignEmpty.hidden = visibleRows !== 0;
+      }
     };
 
-    monitorTabs.forEach((tab) => {
-      tab.addEventListener("click", () => setActivePanel(tab.dataset.monitorTab));
+    reassignFilters.forEach((filter) => {
+      filter.addEventListener("click", () => applyReassignFilter(filter.dataset.reassignFilter));
     });
-    setActivePanel("movimientos");
+    if (reassignFilters.length && reassignRows.length) {
+      applyReassignFilter("all");
+    }
+
+    const monitorTabs = Array.from(document.querySelectorAll("[data-monitor-tab]"));
+    const monitorPanels = Array.from(document.querySelectorAll("[data-monitor-panel]"));
+    if (monitorTabs.length && monitorPanels.length) {
+      const setActivePanel = (panelName) => {
+        monitorTabs.forEach((tab) => {
+          const isActive = tab.dataset.monitorTab === panelName;
+          tab.classList.toggle("is-active", isActive);
+          tab.setAttribute("aria-expanded", String(isActive));
+        });
+        monitorPanels.forEach((panel) => {
+          const isActive = panel.dataset.monitorPanel === panelName;
+          panel.classList.toggle("is-active", isActive);
+          panel.hidden = !isActive;
+        });
+      };
+
+      monitorTabs.forEach((tab) => {
+        tab.addEventListener("click", () => setActivePanel(tab.dataset.monitorTab));
+      });
+      setActivePanel("movimientos");
+    }
   })();
 </script>
 {% endif %}

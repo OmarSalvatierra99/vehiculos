@@ -259,6 +259,27 @@ def _fecha_laboral_valida(fecha_txt: str) -> bool:
     return inicio <= fecha <= fin
 
 
+def _agrupar_vehiculos_por_resguardante(vehiculos: List[dict]) -> List[dict]:
+    def _resguardante(vehiculo: dict) -> str:
+        return (vehiculo.get("propietarios_nombres") or "Sin asignacion").strip() or "Sin asignacion"
+
+    ordenados = sorted(
+        vehiculos,
+        key=lambda item: (
+            _resguardante(item).casefold(),
+            (item.get("categoria") or "").casefold(),
+            (item.get("placa") or "").casefold(),
+        ),
+    )
+    grupos = []
+    for vehiculo in ordenados:
+        resguardante = _resguardante(vehiculo)
+        if not grupos or grupos[-1]["resguardante"] != resguardante:
+            grupos.append({"resguardante": resguardante, "vehiculos": []})
+        grupos[-1]["vehiculos"].append(vehiculo)
+    return grupos
+
+
 def _empty_emergencia_form() -> dict:
     return {
         "resguardante_nombre": "",
@@ -458,6 +479,7 @@ def _build_admin_context(
     return {
         "movimientos": alertas,
         "vehiculos": vehiculos,
+        "vehiculos_reasignacion_grupos": _agrupar_vehiculos_por_resguardante(vehiculos),
         "responsables": responsables,
         "total_stock": total_stock,
         "total_disponible": total_disponible,
