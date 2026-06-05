@@ -51,6 +51,7 @@ PLACAS_OBRA = {
     "XVZ-335-C",
     "XXK-741-D",
 }
+USUARIOS_OBRA = {"ramos", "mike", "omar"}
 
 AUDITOR_RUBEN_MENDEZ_CANONICO = "C.P. Rubén Jesús Méndez Arámbula"
 AUDITOR_RUBEN_MENDEZ_CLAVE = "RUBEN_JESUS_MENDEZ_ARAMBULA"
@@ -93,6 +94,13 @@ def _normalizar_categoria_vehiculo(valor: Optional[str]) -> str:
 
 def _categoria_por_placa(placa: str) -> str:
     if (placa or "").strip().upper() in PLACAS_OBRA:
+        return CATEGORIA_VEHICULO_OBRA
+    return CATEGORIA_VEHICULO_FINANCIERO
+
+
+def _categoria_resguardo_usuario(usuario: Optional[str]) -> str:
+    usuario_txt = (usuario or "").strip().lower()
+    if usuario_txt in USUARIOS_OBRA:
         return CATEGORIA_VEHICULO_OBRA
     return CATEGORIA_VEHICULO_FINANCIERO
 
@@ -1500,6 +1508,14 @@ class DatabaseManager:
         if usuario_id and tiene_relacion:
             cur.execute("""
                 SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
+                       (
+                           SELECT u3.id
+                           FROM usuarios_vehiculos uv3
+                           JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                           WHERE uv3.vehiculo_id = v.id
+                           ORDER BY u3.nombre
+                           LIMIT 1
+                       ) AS propietario_id,
                        COALESCE((
                            SELECT group_concat(nombre, ', ')
                            FROM (
@@ -1518,6 +1534,14 @@ class DatabaseManager:
         else:
             cur.execute("""
                 SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
+                       (
+                           SELECT u3.id
+                           FROM usuarios_vehiculos uv3
+                           JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                           WHERE uv3.vehiculo_id = v.id
+                           ORDER BY u3.nombre
+                           LIMIT 1
+                       ) AS propietario_id,
                        COALESCE((
                            SELECT group_concat(nombre, ', ')
                            FROM (
@@ -1566,6 +1590,7 @@ class DatabaseManager:
         cur = conn.cursor()
         cur.execute("""
             SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
+                   MIN(u.id) AS propietario_id,
                    COALESCE(GROUP_CONCAT(u.nombre, ', '), '') AS propietarios_nombres
             FROM vehiculos v
             LEFT JOIN usuarios_vehiculos uv ON uv.vehiculo_id = v.id
@@ -2217,7 +2242,11 @@ class DatabaseManager:
               AND LOWER(COALESCE(rol, '')) != 'monitor'
             ORDER BY nombre
         """)
-        data = [dict(row) for row in cur.fetchall()]
+        data = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item["categoria_resguardo"] = _categoria_resguardo_usuario(item.get("usuario"))
+            data.append(item)
         conn.close()
         return data
 
@@ -2257,28 +2286,37 @@ class DatabaseManager:
         categoria: Optional[str],
         modo: str = "mover",
     ) -> Tuple[bool, str]:
-        categoria_txt = _normalizar_categoria_vehiculo(categoria)
-
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id
+            SELECT id, categoria
             FROM vehiculos
             WHERE id=? AND activo=1
         """, (vehiculo_id,))
-        if not cur.fetchone():
+        vehiculo = cur.fetchone()
+        if not vehiculo:
             conn.close()
             return False, "Vehiculo no encontrado."
+        categoria_vehiculo = _normalizar_categoria_vehiculo(vehiculo["categoria"])
+        categoria_solicitada = _normalizar_categoria_vehiculo(categoria)
+        if categoria and categoria_solicitada != categoria_vehiculo:
+            conn.close()
+            return False, "La categoria del vehiculo no puede cambiarse en la reasignacion."
 
         cur.execute("""
-            SELECT id
+            SELECT id, usuario
             FROM usuarios
             WHERE id=? AND activo=1
               AND LOWER(COALESCE(rol, '')) != 'monitor'
         """, (usuario_destino_id,))
-        if not cur.fetchone():
+        usuario_destino = cur.fetchone()
+        if not usuario_destino:
             conn.close()
             return False, "Resguardante no encontrado."
+        categoria_usuario = _categoria_resguardo_usuario(usuario_destino["usuario"])
+        if categoria_usuario != categoria_vehiculo:
+            conn.close()
+            return False, "El resguardante no corresponde a la categoria del vehiculo."
 
         cur.execute("DELETE FROM usuarios_vehiculos WHERE vehiculo_id=?", (vehiculo_id,))
 
@@ -2290,7 +2328,7 @@ class DatabaseManager:
             UPDATE vehiculos
             SET categoria=?
             WHERE id=?
-        """, (categoria_txt, vehiculo_id))
+        """, (categoria_vehiculo, vehiculo_id))
         conn.commit()
         conn.close()
 

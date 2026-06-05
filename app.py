@@ -442,6 +442,10 @@ def _build_admin_context(
         db_manager.listar_usuarios_resguardo()
         if rol in {"admin", "monitor"} else []
     )
+    usuarios_resguardo_por_categoria = {categoria: [] for categoria in CATEGORIAS_VEHICULO}
+    for usuario_item in usuarios_resguardo:
+        categoria_resguardo = usuario_item.get("categoria_resguardo")
+        usuarios_resguardo_por_categoria.setdefault(categoria_resguardo, []).append(usuario_item)
     responsables = db_manager.listar_responsables()
     total_stock, total_disponible = db_manager.contar_vehiculos_disponibles()
     en_uso = sum(
@@ -465,6 +469,7 @@ def _build_admin_context(
         "fecha_consulta": fecha_filtro,
         "vehiculos_emergencia": vehiculos_emergencia,
         "usuarios_resguardo": usuarios_resguardo,
+        "usuarios_resguardo_por_categoria": usuarios_resguardo_por_categoria,
         "categorias_vehiculo": CATEGORIAS_VEHICULO,
         "auditores_emergencia": auditores_emergencia,
         "entes": entes,
@@ -662,7 +667,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             return _render_error("Falta seleccionar el vehiculo a reasignar.")
         if not usuario_destino_txt.isdigit():
             return _render_error("Falta seleccionar el nuevo resguardante.")
-        if categoria not in CATEGORIAS_VEHICULO:
+        if categoria and categoria not in CATEGORIAS_VEHICULO:
             return _render_error("La categoria del vehiculo no es valida.")
 
         ok, mensaje = db_manager.reasignar_vehiculo(

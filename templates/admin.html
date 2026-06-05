@@ -375,62 +375,48 @@
     </div>
   </div>
   {% if vehiculos and usuarios_resguardo %}
-  <form method="post" action="{{ url_for('vehiculos_reasignar') }}" class="form" id="vehiculo_reasignacion_form">
-    <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
-    <div class="form-section">
-      <label class="full">
-        <span>Vehiculo</span>
-        <select name="vehiculo_id" id="reasignacion_vehiculo_id" required>
-          <option value="">Seleccione una unidad</option>
-          {% for vehiculo in vehiculos %}
-          <option
-            value="{{ vehiculo.id }}"
-            data-category="{{ vehiculo.categoria }}"
-            data-owner="{{ vehiculo.propietarios_nombres or 'Sin asignacion' }}"
-          >
-            {{ vehiculo.placa }} · {{ vehiculo.categoria }} · {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietarios_nombres or 'Sin asignacion' }}
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        <span>Nuevo resguardante</span>
+  <div class="reassign-list">
+    <div class="reassign-row reassign-row-header">
+      <span>Matricula</span>
+      <span>Unidad</span>
+      <span>Categoria</span>
+      <span>Resguardante actual</span>
+      <span>Nuevo resguardante</span>
+      <span>Accion</span>
+    </div>
+    {% for vehiculo in vehiculos %}
+    {% set compatibles_lista = usuarios_resguardo_por_categoria.get(vehiculo.categoria, []) %}
+    {% set compatibles = namespace(total=0) %}
+    <form method="post" action="{{ url_for('vehiculos_reasignar') }}" class="reassign-row">
+      <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+      <input type="hidden" name="modo" value="mover">
+      <input type="hidden" name="vehiculo_id" value="{{ vehiculo.id }}">
+      <input type="hidden" name="categoria" value="{{ vehiculo.categoria }}">
+      <span class="mono">{{ vehiculo.placa }}</span>
+      <span>{{ vehiculo.marca }} {{ vehiculo.modelo }}</span>
+      <span>
+        <span class="badge {{ 'obra' if vehiculo.categoria == 'Obra' else 'financiero' }}">{{ vehiculo.categoria }}</span>
+      </span>
+      <span>{{ vehiculo.propietarios_nombres or "Sin asignacion" }}</span>
+      <label class="reassign-select-label">
+        <span class="sr-only">Nuevo resguardante para {{ vehiculo.placa }}</span>
         <select name="usuario_destino_id" required>
-          <option value="">Seleccione un usuario</option>
-          {% for usuario_item in usuarios_resguardo %}
-          <option value="{{ usuario_item.id }}">{{ usuario_item.nombre }}</option>
+          <option value="">Seleccione</option>
+          {% for usuario_item in compatibles_lista %}
+            {% if usuario_item.id|string != vehiculo.propietario_id|string %}
+              {% set compatibles.total = compatibles.total + 1 %}
+              <option value="{{ usuario_item.id }}">{{ usuario_item.nombre }}</option>
+            {% endif %}
           {% endfor %}
+          {% if compatibles.total == 0 %}
+            <option value="" disabled>No hay disponibles</option>
+          {% endif %}
         </select>
       </label>
-      <label>
-        <span>Categoria</span>
-        <select name="categoria" id="reasignacion_categoria" required>
-          {% for categoria in categorias_vehiculo %}
-          <option value="{{ categoria }}">{{ categoria }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        <span>Accion</span>
-        <select name="modo" required>
-          <option value="mover">Mover: reemplaza el resguardante actual</option>
-        </select>
-      </label>
-    </div>
-    <div class="unit-summary">
-      <div>
-        <span class="summary-label">Categoria actual</span>
-        <strong id="reasignacion_categoria_actual">-</strong>
-      </div>
-      <div>
-        <span class="summary-label">Resguardo actual</span>
-        <strong id="reasignacion_resguardo_actual">-</strong>
-      </div>
-    </div>
-    <div class="actions">
-      <button class="btn primary" type="submit">Aplicar reasignacion</button>
-    </div>
-  </form>
+      <button class="btn ghost btn-small" type="submit" {% if compatibles.total == 0 %}disabled{% endif %}>Cambiar</button>
+    </form>
+    {% endfor %}
+  </div>
   {% else %}
   <p class="empty">No hay vehiculos o usuarios disponibles para reasignar.</p>
   {% endif %}
@@ -795,29 +781,6 @@
 {% if rol in ["monitor", "admin"] %}
 <script>
   (() => {
-    const vehiculoSelect = document.getElementById("reasignacion_vehiculo_id");
-    const categoriaSelect = document.getElementById("reasignacion_categoria");
-    const categoriaActual = document.getElementById("reasignacion_categoria_actual");
-    const resguardoActual = document.getElementById("reasignacion_resguardo_actual");
-
-    const syncVehicleCategory = () => {
-      const selected = vehiculoSelect?.selectedOptions?.[0];
-      const category = selected?.dataset.category || "";
-      const owner = selected?.dataset.owner || "";
-      if (selected && vehiculoSelect.value && category && categoriaSelect) {
-        categoriaSelect.value = category;
-      }
-      if (categoriaActual) {
-        categoriaActual.textContent = selected && vehiculoSelect.value ? category || "-" : "-";
-      }
-      if (resguardoActual) {
-        resguardoActual.textContent = selected && vehiculoSelect.value ? owner || "Sin asignacion" : "-";
-      }
-    };
-
-    vehiculoSelect?.addEventListener("change", syncVehicleCategory);
-    syncVehicleCategory();
-
     const monitorTabs = Array.from(document.querySelectorAll("[data-monitor-tab]"));
     const monitorPanels = Array.from(document.querySelectorAll("[data-monitor-panel]"));
     if (!monitorTabs.length || !monitorPanels.length) {

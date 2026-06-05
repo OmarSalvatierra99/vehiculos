@@ -17,6 +17,19 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
 body {
   margin: 0;
   font-family: "Manrope", sans-serif;
@@ -58,6 +71,7 @@ body {
   display: flex;
   gap: 18px;
   align-items: center;
+  min-width: 0;
 }
 
 .brand-logo {
@@ -69,6 +83,7 @@ body {
 .brand-text {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .brand-overline {
@@ -84,6 +99,7 @@ body {
   font-size: 1.9rem;
   letter-spacing: 0.03em;
   color: var(--accent-dark);
+  overflow-wrap: anywhere;
 }
 
 .brand p {
@@ -94,8 +110,10 @@ body {
 
 .user-area {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
   align-items: center;
+  min-width: 0;
 }
 
 .user-chip {
@@ -138,6 +156,7 @@ body {
 }
 
 .content-inner {
+  width: min(1200px, 100%);
   max-width: 1200px;
   margin: 0 auto;
   display: grid;
@@ -158,7 +177,7 @@ body {
 
 .hero {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 32px;
   align-items: center;
   animation: rise 0.6s ease both;
@@ -178,14 +197,14 @@ body {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 24px;
   margin-bottom: 24px;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: 16px;
   margin: 12px 0 28px;
 }
@@ -217,6 +236,8 @@ body {
 }
 
 .card {
+  min-width: 0;
+  max-width: 100%;
   background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -243,6 +264,7 @@ body {
   display: grid;
   gap: 6px;
   margin-bottom: 18px;
+  min-width: 0;
 }
 
 .subtitle {
@@ -252,10 +274,12 @@ body {
 
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-end;
   gap: 20px;
   animation: rise 0.6s ease both;
+  min-width: 0;
 }
 
 .date-chip {
@@ -294,7 +318,7 @@ body {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -309,9 +333,10 @@ body {
   padding: 18px;
   background: #ffffff;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 16px;
   margin: 0;
+  min-width: 0;
 }
 
 .form-section legend {
@@ -333,6 +358,7 @@ body {
   gap: 8px;
   font-weight: 600;
   color: #2f3432;
+  min-width: 0;
 }
 
 .form-grid input,
@@ -341,6 +367,9 @@ body {
 .form input,
 .form select,
 .form textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 11px 12px;
   border-radius: 10px;
   border: 1px solid var(--line);
@@ -443,12 +472,14 @@ body {
 
 .unit-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: 12px;
   padding: 12px;
   border: 1px dashed var(--line);
   border-radius: 12px;
   background: #f7f3ee;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .summary-label {
@@ -463,9 +494,12 @@ body {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 18px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .monitor-tab {
+  min-width: 0;
   min-height: 52px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -476,6 +510,7 @@ body {
   font-weight: 700;
   cursor: pointer;
   text-align: center;
+  overflow-wrap: anywhere;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
@@ -491,6 +526,88 @@ body {
 
 .monitor-panel[hidden] {
   display: none;
+}
+
+.reassign-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.reassign-row {
+  display: grid;
+  grid-template-columns: minmax(94px, 0.8fr) minmax(130px, 1fr) minmax(100px, 0.8fr) minmax(170px, 1.3fr) minmax(190px, 1.4fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f9f7f3;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.reassign-row-header {
+  background: #ede7dc;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+}
+
+.reassign-row > * {
+  min-width: 0;
+}
+
+.reassign-row span {
+  overflow-wrap: anywhere;
+}
+
+.reassign-select-label {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.reassign-select-label select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 9px 34px 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background-color: #ffffff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+}
+
+.reassign-select-label select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(18, 59, 54, 0.12);
+}
+
+.reassign-select-label select:disabled {
+  color: #7a746b;
+  background-color: #f3efe8;
+  cursor: not-allowed;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .week-picker {
@@ -568,10 +685,13 @@ body {
   border-radius: 12px;
   border: 1px solid var(--line);
   background: #f7f3ee;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .combobox-search {
   position: relative;
+  min-width: 0;
 }
 
 .combobox-input {
@@ -616,6 +736,7 @@ body {
   cursor: pointer;
   transition: background-color 0.15s ease;
   border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
 
 .combobox-item:last-child {
@@ -652,10 +773,12 @@ body {
 
 .combobox-meta {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   font-size: 0.82rem;
   color: #6f6a62;
+  min-width: 0;
 }
 
 .combobox-chips {
@@ -664,6 +787,8 @@ body {
   gap: 8px;
   padding-top: 4px;
   min-height: 32px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chip-removable {
@@ -721,11 +846,15 @@ textarea {
 
 .actions-inline {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .btn {
+  max-width: 100%;
   border: 1px solid var(--accent);
   background: #fff;
   color: var(--accent);
@@ -733,6 +862,8 @@ textarea {
   border-radius: 999px;
   font-weight: 600;
   cursor: pointer;
+  white-space: normal;
+  text-align: center;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -780,6 +911,9 @@ textarea {
 .table {
   display: grid;
   gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table-row {
@@ -790,6 +924,7 @@ textarea {
   background: #f9f7f3;
   align-items: center;
   font-size: 0.92rem;
+  min-width: 0;
 }
 
 .table-4 .table-row {
@@ -830,6 +965,8 @@ textarea {
 
 .table-row span {
   word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .badge {
@@ -1523,6 +1660,10 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .reassign-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .gov-header {
     flex-direction: column;
     align-items: flex-start;
@@ -1540,6 +1681,15 @@ textarea {
   }
 
   .table-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-4 .table-row,
+  .table-5 .table-row,
+  .table-6 .table-row,
+  .table-7 .table-row,
+  .table-10 .table-row,
+  .table-11 .table-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1567,6 +1717,12 @@ textarea {
     padding: 28px 5vw 46px;
   }
 
+  .date-chip {
+    width: 100%;
+    min-width: 0;
+    text-align: left;
+  }
+
   .card {
     padding: 20px;
   }
@@ -1582,6 +1738,24 @@ textarea {
 
   .monitor-tab {
     min-height: 42px;
+  }
+
+  .reassign-row {
+    grid-template-columns: 1fr;
+  }
+
+  .reassign-row-header {
+    display: none;
+  }
+
+  .table-3 .table-row,
+  .table-4 .table-row,
+  .table-5 .table-row,
+  .table-6 .table-row,
+  .table-7 .table-row,
+  .table-10 .table-row,
+  .table-11 .table-row {
+    grid-template-columns: 1fr;
   }
 
   .actions {
