@@ -6,6 +6,7 @@ Control de vehiculos para auditoria institucional.
 
 import logging
 import sys
+from collections import Counter
 from datetime import date, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import List, Optional, Tuple
 
 from flask import (
     Flask,
+    flash,
+    get_flashed_messages,
     jsonify,
     redirect,
     render_template,
@@ -23,7 +26,18 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 
 from config import get_config
-from scripts.utils import CATEGORIAS_VEHICULO, DatabaseManager, MOTIVOS_SALIDA_VALIDOS
+from scripts.utils import (
+    CATEGORIA_VEHICULO_OBRA,
+    CATEGORIAS_VEHICULO,
+    DatabaseManager,
+    MOTIVOS_SALIDA_VALIDOS,
+)
+from sso import clear_sso_cookie, read_sso_username, set_sso_cookie
+
+
+USUARIOS_SOLICITUD_OBRA = {"mike", "ramos"}
+USUARIOS_SOLICITUD_COMPLETA = {"luis"}
+MOVIMIENTOS_RAPIDOS = {"mike": "Mike", "luis": "Luis Felipe"}
 
 
 def create_app(config_name: str = None) -> Flask:
@@ -332,16 +346,74 @@ def _es_visor_omar(usuario: Optional[str]) -> bool:
     return (usuario or "").strip().lower() == "omar"
 
 
+def _puede_solicitar_unidades_obra(usuario: Optional[str]) -> bool:
+    return (usuario or "").strip().lower() in USUARIOS_SOLICITUD_OBRA
+
+
+def _puede_solicitar_todo(usuario: Optional[str]) -> bool:
+    return (usuario or "").strip().lower() in USUARIOS_SOLICITUD_COMPLETA
+
+
 def _listar_vehiculos_solicitables(
     db_manager: DatabaseManager,
     usuario_id: int,
     usuario: Optional[str],
 ) -> List[dict]:
-    usuario_actual = (usuario or "").strip().lower()
-    if usuario_actual in {"mike", "ramos"}:
-        omar_id = db_manager.obtener_usuario_id("omar")
-        return db_manager.listar_vehiculos(usuario_id=omar_id) if omar_id else []
+    if _puede_solicitar_todo(usuario):
+        return db_manager.listar_vehiculos()
+    if _puede_solicitar_unidades_obra(usuario):
+        return db_manager.listar_vehiculos_por_categoria(CATEGORIA_VEHICULO_OBRA)
     return db_manager.listar_vehiculos(usuario_id=usuario_id)
+
+
+def _vehiculo_frecuente(movimientos: List[dict], vehiculos: List[dict]) -> Optional[dict]:
+    conteos = Counter(
+        mov.get("vehiculo_id")
+        for mov in movimientos
+        if mov.get("vehiculo_id") and not mov.get("rechazado")
+    )
+    if not conteos:
+        return None
+    vehiculo_id, pedidos = conteos.most_common(1)[0]
+    vehiculo = next((item for item in vehiculos if item.get("id") == vehiculo_id), None)
+    return {**vehiculo, "pedidos": pedidos} if vehiculo else None
+
+
+def _plantilla_movimiento_rapido(
+    db_manager: DatabaseManager,
+    usuario: str,
+    vehiculos: List[dict],
+) -> Optional[dict]:
+    usuario_id = db_manager.obtener_usuario_id(usuario)
+    if not usuario_id:
+        return None
+    historial = [
+        mov for mov in db_manager.listar_movimientos(usuario_id=usuario_id)
+        if mov.get("tipo") == "movimiento"
+    ]
+    vehiculo = _vehiculo_frecuente(historial, vehiculos)
+    if not vehiculo:
+        return None
+    referencia = next(
+        (
+            mov for mov in historial
+            if mov.get("vehiculo_id") == vehiculo["id"] and not mov.get("rechazado")
+        ),
+        None,
+    )
+    solicitud = (
+        db_manager.obtener_solicitud_edicion("movimiento", referencia["id"])
+        if referencia else None
+    )
+    if not solicitud or not solicitud.get("responsable_auditor_id"):
+        return None
+    return {
+        **solicitud,
+        **vehiculo,
+        "usuario": usuario,
+        "usuario_id": usuario_id,
+        "usuario_nombre_corto": MOVIMIENTOS_RAPIDOS[usuario],
+    }
 
 
 def _build_dashboard_context(
@@ -352,14 +424,17 @@ def _build_dashboard_context(
 ) -> dict:
     fecha_txt = _normalizar_fecha_solicitud(fecha_solicitud)
     fecha_referencia = _fecha_referencia_registros(fecha_solicitud)
+    usuario_actual = session.get("usuario")
+    permite_solicitud_completa = _puede_solicitar_todo(usuario_actual)
     # Garantiza que el usuario actual exista en el catalogo de auditores
     # para poder seleccionarlo como responsable o pasajero.
     db_manager.asegurar_auditor_usuario(usuario_id)
     vehiculos = _listar_vehiculos_solicitables(
         db_manager,
         usuario_id,
-        session.get("usuario"),
+        usuario_actual,
     )
+    permite_unidades_obra = _puede_solicitar_unidades_obra(usuario_actual)
     ocupados = db_manager.obtener_vehiculos_ocupados(fecha_txt)
     vehiculos = [vehiculo for vehiculo in vehiculos if vehiculo.get("id") not in ocupados]
     ocupados_auditores = db_manager.obtener_auditores_ocupados(fecha_txt)
@@ -381,14 +456,18 @@ def _build_dashboard_context(
             unique.append(item)
         return unique
 
-    responsables = _dedupe_por_id([
-        item for item in db_manager.listar_personal_resguardante(usuario_id)
-        if item.get("id") not in ocupados_auditores
-    ])
-    auditores = _dedupe_por_id([
-        item for item in db_manager.listar_auditores_por_usuario(usuario_id)
-        if item.get("id") not in ocupados_auditores
-    ])
+    if permite_solicitud_completa:
+        responsables = auditores_ofs
+        auditores = auditores_ofs
+    else:
+        responsables = _dedupe_por_id([
+            item for item in db_manager.listar_personal_resguardante(usuario_id)
+            if item.get("id") not in ocupados_auditores
+        ])
+        auditores = _dedupe_por_id([
+            item for item in db_manager.listar_auditores_por_usuario(usuario_id)
+            if item.get("id") not in ocupados_auditores
+        ])
 
     # Asegura que el resguardante (usuario actual) pueda aparecer tambien como auditor,
     # cuando exista en el catalogo de auditores y no este ocupado.
@@ -422,9 +501,15 @@ def _build_dashboard_context(
         "movimientos": alertas,
         "mis_movimientos": movimientos,
         "vehiculos": vehiculos,
+        "vehiculos_grupo_label": (
+            "Todas las unidades"
+            if permite_solicitud_completa
+            else "Unidades de obra" if permite_unidades_obra else "Mis unidades"
+        ),
         "responsables": responsables,
         "auditores": auditores,
         "auditores_ofs": auditores_ofs,
+        "personal_global": permite_solicitud_completa,
         "entes": entes,
         "vehiculos_prestables": vehiculos_prestables,
         "usuario_id": usuario_id,
@@ -446,27 +531,28 @@ def _build_admin_context(
     fecha_consulta: Optional[str] = None,
     emergencia_form: Optional[dict] = None,
 ) -> dict:
-    movimientos = db_manager.listar_movimientos()
-    fecha_filtro = ""
-    fecha_hoy = date.today().isoformat()
-    if fecha_consulta:
-        fecha_filtro = _fecha_referencia_registros(fecha_consulta).isoformat()
-        movimientos = _filtrar_movimientos_hoy(
-            movimientos,
-            _fecha_referencia_registros(fecha_consulta),
-        )
-    elif rol == "monitor":
-        fecha_filtro = _fecha_referencia_registros().isoformat()
-        movimientos = _filtrar_movimientos_hoy(
-            movimientos,
-            _fecha_referencia_registros(),
-        )
+    movimientos, fecha_filtro = _listar_movimientos_admin_filtrados(
+        db_manager,
+        rol,
+        fecha_consulta,
+    )
     alertas = db_manager.movimientos_con_alerta(
         movimientos,
         app.config.get("ALERTA_DIAS_NO_DEVUELTO", 7),
     )
+    movimientos_validables = sum(1 for mov in movimientos if _es_movimiento_validable(mov))
+    fecha_hoy = date.today().isoformat()
     if rol == "monitor":
         vehiculos = db_manager.listar_vehiculos_con_propietarios()
+        movimientos_rapidos = [
+            plantilla
+            for usuario_rapido in MOVIMIENTOS_RAPIDOS
+            if (plantilla := _plantilla_movimiento_rapido(
+                db_manager,
+                usuario_rapido,
+                vehiculos,
+            ))
+        ]
         vehiculos_emergencia = db_manager.listar_vehiculos_disponibles_con_propietarios(fecha_hoy)
         ocupados_auditores = db_manager.obtener_auditores_ocupados(fecha_hoy)
         auditores_emergencia = [
@@ -476,6 +562,7 @@ def _build_admin_context(
         entes = db_manager.listar_entes()
     else:
         vehiculos = db_manager.listar_vehiculos()
+        movimientos_rapidos = []
         vehiculos_emergencia = []
         auditores_emergencia = []
         entes = []
@@ -507,6 +594,8 @@ def _build_admin_context(
         "total_vehiculos": len(vehiculos),
         "movimientos_en_uso": en_uso,
         "movimientos_pendientes": pendientes,
+        "movimientos_validables": movimientos_validables,
+        "movimientos_rapidos": movimientos_rapidos,
         "movimientos_alerta": total_alertas,
         "today": date.today().isoformat(),
         "fecha_consulta": fecha_filtro,
@@ -520,6 +609,34 @@ def _build_admin_context(
         "emergencia_habilitada": rol == "monitor" and fecha_filtro == fecha_hoy,
         "emergencia_form": emergencia_form or _empty_emergencia_form(),
     }
+
+
+def _listar_movimientos_admin_filtrados(
+    db_manager: DatabaseManager,
+    rol: Optional[str] = None,
+    fecha_consulta: Optional[str] = None,
+) -> Tuple[List[dict], str]:
+    movimientos = db_manager.listar_movimientos()
+    fecha_filtro = ""
+    if fecha_consulta:
+        fecha_referencia = _fecha_referencia_registros(fecha_consulta)
+        fecha_filtro = fecha_referencia.isoformat()
+        movimientos = _filtrar_movimientos_hoy(
+            movimientos,
+            fecha_referencia,
+        )
+    elif rol == "monitor":
+        fecha_referencia = _fecha_referencia_registros()
+        fecha_filtro = fecha_referencia.isoformat()
+        movimientos = _filtrar_movimientos_hoy(
+            movimientos,
+            fecha_referencia,
+        )
+    return movimientos, fecha_filtro
+
+
+def _es_movimiento_validable(movimiento: dict) -> bool:
+    return not movimiento.get("fecha_entrega") and not movimiento.get("rechazado")
 
 
 def _build_monitor_context(app: Flask, db_manager: DatabaseManager) -> dict:
@@ -536,14 +653,47 @@ def _build_monitor_context(app: Flask, db_manager: DatabaseManager) -> dict:
 
 
 def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
+    def _destino_por_rol(rol: str) -> str:
+        if rol in {"admin", "monitor"}:
+            return "admin"
+        return "dashboard"
+
+    def _aplicar_sesion_usuario(user: dict) -> str:
+        rol = _normalizar_rol(user["rol"])
+        session.permanent = True
+        session.update({
+            "usuario_id": user["id"],
+            "usuario": user["usuario"],
+            "nombre": user["nombre"],
+            "rol": rol,
+            "entes": user["entes"],
+            "autenticado": True,
+        })
+        return rol
+
+    def _hidratar_sesion_desde_sso() -> bool:
+        user = db_manager.get_usuario_por_username(read_sso_username())
+        if not user:
+            return False
+        session.clear()
+        _aplicar_sesion_usuario(user)
+        return True
+
     @app.before_request
     def verificar_autenticacion():
         libres = {"login", "login_alias", "static", "health_check"}
+        if request.endpoint not in libres and not session.get("autenticado"):
+            _hidratar_sesion_desde_sso()
         if request.endpoint not in libres and not session.get("autenticado"):
             return redirect(url_for("login"))
 
     @app.route("/", methods=["GET", "POST"])
     def login():
+        if session.get("autenticado") or _hidratar_sesion_desde_sso():
+            return set_sso_cookie(
+                redirect(url_for(_destino_por_rol(session.get("rol", "")))),
+                session.get("usuario"),
+            )
         if request.method == "POST":
             usuario = request.form.get("usuario", "").strip()
             clave = request.form.get("clave", "").strip()
@@ -551,23 +701,9 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             if not user:
                 return render_template("login.html", error="Credenciales inválidas")
 
-            rol = _normalizar_rol(user["rol"])
-            session.update({
-                "usuario_id": user["id"],
-                "usuario": user["usuario"],
-                "nombre": user["nombre"],
-                "rol": rol,
-                "entes": user["entes"],
-                "autenticado": True,
-            })
-
-            if rol == "admin":
-                destino = "admin"
-            elif rol == "monitor":
-                destino = "admin"
-            else:
-                destino = "dashboard"
-            return redirect(url_for(destino))
+            session.clear()
+            rol = _aplicar_sesion_usuario(user)
+            return set_sso_cookie(redirect(url_for(_destino_por_rol(rol))), user["usuario"])
         return render_template("login.html")
 
     @app.route("/login")
@@ -577,7 +713,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     @app.route("/logout")
     def logout():
         session.clear()
-        return redirect(url_for("login"))
+        return clear_sso_cookie(redirect(url_for("login")))
 
     @app.route("/dashboard")
     def dashboard():
@@ -610,6 +746,11 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
             session.get("rol"),
             request.args.get("fecha"),
         )
+        for categoria, texto in get_flashed_messages(with_categories=True):
+            if categoria == "error":
+                context["error"] = texto
+            elif categoria == "mensaje":
+                context["mensaje"] = texto
         return render_template(
             "admin.html",
             usuario=session.get("nombre"),
@@ -626,6 +767,179 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         if not fecha_raw:
             return redirect(url_for("admin"))
         return redirect(url_for("admin", fecha=_normalizar_fecha_solicitud(fecha_raw)))
+
+    @app.route(
+        "/solicitudes/<tipo>/<int:solicitud_id>/editar",
+        methods=["GET", "POST"],
+    )
+    def solicitudes_editar(tipo: str, solicitud_id: int):
+        if session.get("rol") != "monitor":
+            return redirect(url_for("dashboard"))
+
+        fecha_consulta = request.values.get("fecha_consulta", "").strip()
+        solicitud = db_manager.obtener_solicitud_edicion(tipo, solicitud_id)
+        if not solicitud:
+            flash("La solicitud no existe.", "error")
+            return _redirect_admin_con_fecha(fecha_consulta)
+
+        error = None
+        if request.method == "POST":
+            vehiculo_txt = request.form.get("vehiculo_id", "").strip()
+            responsable_txt = request.form.get("responsable_auditor_id", "").strip()
+            pasajeros_txt = [pid.strip() for pid in request.form.getlist("pasajeros_ids") if pid.strip()]
+            ruta_destinos = [clave.strip() for clave in request.form.getlist("ruta_destinos") if clave.strip()]
+            fecha_solicitud = request.form.get("fecha_solicitud", "").strip()
+            motivo_salida = request.form.get("motivo_salida", "").strip()
+
+            if not vehiculo_txt.isdigit():
+                error = "Falta seleccionar la unidad."
+            elif not responsable_txt.isdigit():
+                error = "Falta seleccionar al responsable del vehiculo."
+            elif any(not pid.isdigit() for pid in pasajeros_txt):
+                error = "La lista de acompanantes no es valida."
+            else:
+                ok, mensaje = db_manager.actualizar_solicitud_reporte(
+                    tipo,
+                    solicitud_id,
+                    int(vehiculo_txt),
+                    fecha_solicitud,
+                    int(responsable_txt),
+                    [int(pid) for pid in pasajeros_txt],
+                    ruta_destinos,
+                    motivo_salida,
+                    session.get("usuario_id"),
+                )
+                if ok:
+                    flash(mensaje, "mensaje")
+                    return _redirect_admin_con_fecha(fecha_solicitud)
+                error = mensaje
+
+            solicitud.update({
+                "vehiculo_id": int(vehiculo_txt) if vehiculo_txt.isdigit() else None,
+                "fecha_solicitud": fecha_solicitud,
+                "responsable_auditor_id": (
+                    int(responsable_txt) if responsable_txt.isdigit() else None
+                ),
+                "pasajeros_ids": [int(pid) for pid in pasajeros_txt if pid.isdigit()],
+                "ruta_destinos": ruta_destinos,
+                "motivo_salida": motivo_salida,
+            })
+
+        return render_template(
+            "editar_solicitud.html",
+            solicitud=solicitud,
+            vehiculos=db_manager.listar_vehiculos_con_propietarios(),
+            auditores=db_manager.listar_auditores(),
+            entes=db_manager.listar_entes(),
+            motivos_salida=MOTIVOS_SALIDA_VALIDOS,
+            fecha_consulta=fecha_consulta or solicitud.get("fecha_solicitud"),
+            error=error,
+        )
+
+    @app.route("/movimientos/validar-todos", methods=["POST"])
+    def movimientos_validar_todos():
+        if session.get("rol") != "monitor":
+            return redirect(url_for("dashboard"))
+
+        fecha = request.form.get("fecha", "").strip()
+        movimientos, _ = _listar_movimientos_admin_filtrados(
+            db_manager,
+            session.get("rol"),
+            fecha,
+        )
+        pendientes = [mov for mov in movimientos if _es_movimiento_validable(mov)]
+
+        if not pendientes:
+            flash("No hay movimientos pendientes por validar.", "error")
+            return _redirect_admin_con_fecha(fecha)
+
+        validados = 0
+        errores = []
+        for mov in pendientes:
+            mov_id = int(mov["id"])
+            etiqueta = mov.get("folio") or f"Movimiento {mov_id}"
+            if mov.get("tipo") == "prestamo":
+                ok, mensaje = db_manager.marcar_prestamo_validado(
+                    mov_id,
+                    session.get("usuario_id"),
+                )
+            else:
+                ok, mensaje = db_manager.marcar_entregado(
+                    mov_id,
+                    session.get("usuario_id"),
+                )
+            if ok:
+                validados += 1
+            else:
+                errores.append(f"{etiqueta}: {mensaje}")
+
+        if errores:
+            detalle = "; ".join(errores[:5])
+            if len(errores) > 5:
+                detalle = f"{detalle}; y {len(errores) - 5} mas."
+            flash(
+                f"Se validaron {validados} de {len(pendientes)} movimientos. No se validaron: {detalle}",
+                "error",
+            )
+            return _redirect_admin_con_fecha(fecha)
+
+        flash(f"Se validaron {validados} movimientos.", "mensaje")
+        return _redirect_admin_con_fecha(fecha)
+
+    @app.route("/movimientos/rapido/<usuario>", methods=["POST"])
+    def movimientos_rapido(usuario: str):
+        if session.get("rol") != "monitor":
+            return redirect(url_for("dashboard"))
+
+        usuario = usuario.strip().lower()
+        fecha = _fecha_iso_desde_texto(request.form.get("fecha"))
+        if usuario not in MOVIMIENTOS_RAPIDOS or not fecha:
+            flash("El movimiento rapido solicitado no es valido.", "error")
+            return _redirect_admin_con_fecha(fecha)
+
+        plantilla = _plantilla_movimiento_rapido(
+            db_manager,
+            usuario,
+            db_manager.listar_vehiculos(),
+        )
+        if not plantilla:
+            flash("No hay un movimiento anterior valido para repetir.", "error")
+            return _redirect_admin_con_fecha(fecha)
+
+        pasajeros_ids = plantilla.get("pasajeros_ids") or []
+        ruta_destinos = plantilla.get("ruta_destinos") or []
+        ok, data = db_manager.crear_movimiento(
+            plantilla["usuario_id"],
+            ruta_destinos[0] if ruta_destinos else "",
+            1,
+            "",
+            None,
+            f"Alta rapida validada por monitor; referencia {plantilla['folio']}.",
+            None,
+            plantilla["id"],
+            plantilla["responsable_auditor_id"],
+            "auditor",
+            len(pasajeros_ids),
+            pasajeros_ids,
+            ruta_destinos,
+            plantilla["motivo_salida"],
+            fecha_solicitud=fecha,
+        )
+        if not ok:
+            flash(data.get("mensaje") if isinstance(data, dict) else str(data), "error")
+            return _redirect_admin_con_fecha(fecha)
+
+        movimiento_id = data["movimiento_id"]
+        ok, mensaje = db_manager.marcar_entregado(movimiento_id, session.get("usuario_id"))
+        if not ok:
+            flash(f"El movimiento se creo pendiente: {mensaje}", "error")
+            return _redirect_admin_con_fecha(fecha)
+
+        flash(
+            f"Movimiento de {plantilla['usuario_nombre_corto']} con {plantilla['placa']} agregado y validado.",
+            "mensaje",
+        )
+        return _redirect_admin_con_fecha(fecha)
 
     @app.route("/movimientos/emergencia", methods=["POST"])
     def movimientos_emergencia():

@@ -59,12 +59,33 @@
     </form>
     {% if rol in ["monitor", "admin"] %}
     <div class="actions-inline">
+      {% if rol == "monitor" %}
+        {% for movimiento_rapido in movimientos_rapidos %}
+        <form method="post" action="{{ url_for('movimientos_rapido', usuario=movimiento_rapido.usuario) }}">
+          <input type="hidden" name="fecha" value="{{ fecha_consulta or today }}">
+          <button
+            class="btn ghost btn-small"
+            type="submit"
+            aria-label="Agregar y validar movimiento de {{ movimiento_rapido.usuario_nombre_corto }} con {{ movimiento_rapido.placa }}"
+          >+ {{ movimiento_rapido.usuario_nombre_corto }} · {{ movimiento_rapido.placa }}</button>
+        </form>
+        {% endfor %}
+      {% endif %}
+      {% if rol == "monitor" and movimientos_validables %}
+      <form method="post" action="{{ url_for('movimientos_validar_todos') }}">
+        <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+        <button class="btn primary" type="submit" onclick="return confirm('Validar todos los movimientos pendientes visibles?')">Validar todos</button>
+      </form>
+      {% endif %}
       <a class="btn ghost" href="{{ url_for('reporte_diario', fecha=fecha_consulta) if fecha_consulta else url_for('reporte_diario') }}">Reportes</a>
     </div>
     {% endif %}
   </div>
   {% if error %}
   <div class="alert full">{{ error }}</div>
+  {% endif %}
+  {% if mensaje %}
+  <div class="alert success full">{{ mensaje }}</div>
   {% endif %}
   {% if movimientos %}
   <div class="table {% if rol == 'monitor' %}table-11{% else %}table-7{% endif %}">
@@ -131,6 +152,12 @@
       </span>
       <span class="actions-inline">
         {% if rol == "monitor" %}
+          {% if not mov.data.rechazado %}
+            <a
+              class="btn ghost btn-small"
+              href="{{ url_for('solicitudes_editar', tipo=mov.data.tipo, solicitud_id=mov.data.id, fecha_consulta=fecha_consulta or '') }}"
+            >Editar</a>
+          {% endif %}
           {% if mov.data.tipo == "prestamo" %}
             {% if mov.data.rechazado %}
               <span class="badge danger">Rechazado</span>

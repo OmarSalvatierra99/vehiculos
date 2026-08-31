@@ -905,6 +905,31 @@ class DatabaseManager:
             "entes": entes or ["TODOS"],
         }
 
+    def get_usuario_por_username(self, usuario: str):
+        if not usuario:
+            return None
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, nombre, usuario, rol, entes
+            FROM usuarios
+            WHERE LOWER(usuario)=LOWER(?)
+              AND activo=1
+            LIMIT 1
+        """, (usuario,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return None
+        entes = [e.strip().upper() for e in (row["entes"] or "").split(",") if e.strip()]
+        return {
+            "id": row["id"],
+            "nombre": row["nombre"],
+            "usuario": row["usuario"],
+            "rol": row["rol"],
+            "entes": entes or ["TODOS"],
+        }
+
     # -------------------------------------------------------
     # Catálogos
     # -------------------------------------------------------
@@ -1560,6 +1585,39 @@ class DatabaseManager:
         conn.close()
         return data
 
+    def listar_vehiculos_por_categoria(self, categoria: str) -> List[Dict]:
+        categoria_txt = _normalizar_categoria_vehiculo(categoria)
+        conn = self._connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT v.id, v.placa, v.modelo, v.marca, v.categoria,
+                   (
+                       SELECT u3.id
+                       FROM usuarios_vehiculos uv3
+                       JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                       WHERE uv3.vehiculo_id = v.id
+                       ORDER BY u3.nombre
+                       LIMIT 1
+                   ) AS propietario_id,
+                   COALESCE((
+                       SELECT group_concat(nombre, ', ')
+                       FROM (
+                           SELECT u3.nombre AS nombre
+                           FROM usuarios_vehiculos uv3
+                           JOIN usuarios u3 ON u3.id = uv3.usuario_id
+                           WHERE uv3.vehiculo_id = v.id
+                           ORDER BY u3.nombre
+                       )
+                   ), '') AS propietarios_nombres
+            FROM vehiculos v
+            WHERE v.activo=1
+              AND v.categoria=?
+            ORDER BY v.placa
+        """, (categoria_txt,))
+        data = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return data
+
     def _obtener_resguardantes_vehiculo_cursor(self, cur: sqlite3.Cursor, vehiculo_id: int) -> Optional[Dict[str, Any]]:
         cur.execute("""
             SELECT u.id, u.nombre
@@ -1798,20 +1856,27 @@ class DatabaseManager:
         conn.close()
         return ocupados
 
-    def _obtener_auditores_ocupados_cursor(self, cur, fecha_txt: str) -> set:
+    def _obtener_auditores_ocupados_cursor(
+        self,
+        cur,
+        fecha_txt: str,
+        movimiento_excluido: Optional[int] = None,
+        prestamo_excluido: Optional[int] = None,
+    ) -> set:
         cur.execute("""
             SELECT DISTINCT a.id
             FROM movimientos m
             JOIN auditores a
               ON LOWER(TRIM(a.nombre)) = LOWER(TRIM(COALESCE(m.responsable_vehiculo, '')))
             WHERE m.fecha_solicitud = ?
+              AND (? IS NULL OR m.id != ?)
               AND NOT EXISTS (
                   SELECT 1
                   FROM movimientos_eventos me
                   WHERE me.movimiento_id = m.id
                     AND me.evento = 'RECHAZADO'
               )
-        """, (fecha_txt,))
+        """, (fecha_txt, movimiento_excluido, movimiento_excluido))
         ocupados = {row["id"] for row in cur.fetchall() if row["id"]}
 
         cur.execute("""
@@ -1820,13 +1885,14 @@ class DatabaseManager:
             JOIN movimientos_auditores ma ON ma.movimiento_id = m.id
             JOIN auditores a ON a.id = ma.auditor_id
             WHERE m.fecha_solicitud = ?
+              AND (? IS NULL OR m.id != ?)
               AND NOT EXISTS (
                   SELECT 1
                   FROM movimientos_eventos me
                   WHERE me.movimiento_id = m.id
                     AND me.evento = 'RECHAZADO'
               )
-        """, (fecha_txt,))
+        """, (fecha_txt, movimiento_excluido, movimiento_excluido))
         ocupados.update({row["id"] for row in cur.fetchall() if row["id"]})
 
         cur.execute("""
@@ -1835,22 +1901,36 @@ class DatabaseManager:
             JOIN auditores a
               ON LOWER(TRIM(a.nombre)) = LOWER(TRIM(COALESCE(p.responsable_nombre, '')))
             WHERE p.estado IN ('PENDIENTE', 'VALIDADO')
+              AND (? IS NULL OR p.id != ?)
               AND (
-                (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
-                OR p.fecha_solicitud = ?
+                (
+                  TRIM(COALESCE(p.fechas_solicitadas, '')) != ''
+                  AND (',' || p.fechas_solicitadas || ',') LIKE '%,' || ? || ',%'
+                )
+                OR (
+                  TRIM(COALESCE(p.fechas_solicitadas, '')) = ''
+                  AND p.fecha_solicitud = ?
+                )
               )
-        """, (fecha_txt, fecha_txt))
+        """, (prestamo_excluido, prestamo_excluido, fecha_txt, fecha_txt))
         ocupados.update({row["id"] for row in cur.fetchall() if row["id"]})
 
         cur.execute("""
             SELECT p.pasajeros_ids
             FROM prestamos_vehiculos p
             WHERE p.estado IN ('PENDIENTE', 'VALIDADO')
+              AND (? IS NULL OR p.id != ?)
               AND (
-                (',' || COALESCE(p.fechas_solicitadas, '') || ',') LIKE '%,' || ? || ',%'
-                OR p.fecha_solicitud = ?
+                (
+                  TRIM(COALESCE(p.fechas_solicitadas, '')) != ''
+                  AND (',' || p.fechas_solicitadas || ',') LIKE '%,' || ? || ',%'
+                )
+                OR (
+                  TRIM(COALESCE(p.fechas_solicitadas, '')) = ''
+                  AND p.fecha_solicitud = ?
+                )
               )
-        """, (fecha_txt, fecha_txt))
+        """, (prestamo_excluido, prestamo_excluido, fecha_txt, fecha_txt))
         pasajeros_por_prestamo = cur.fetchall()
         if pasajeros_por_prestamo:
             cur.execute("SELECT id FROM auditores WHERE activo=1")
@@ -3333,6 +3413,280 @@ class DatabaseManager:
         }
         conn.close()
         return data
+
+    def obtener_solicitud_edicion(self, tipo: str, solicitud_id: int) -> Optional[Dict]:
+        if tipo == "movimiento":
+            solicitud = self.obtener_movimiento(solicitud_id)
+        elif tipo == "prestamo":
+            solicitud = self.obtener_prestamo(solicitud_id)
+        else:
+            return None
+        if not solicitud:
+            return None
+
+        conn = self._connect()
+        cur = conn.cursor()
+        if tipo == "movimiento":
+            cur.execute("""
+                SELECT auditor_id
+                FROM movimientos_auditores
+                WHERE movimiento_id=?
+                ORDER BY auditor_id
+            """, (solicitud_id,))
+            pasajeros_ids = [int(row["auditor_id"]) for row in cur.fetchall()]
+            cur.execute("""
+                SELECT ente_clave
+                FROM movimientos_destinos
+                WHERE movimiento_id=?
+                ORDER BY orden
+            """, (solicitud_id,))
+            ruta_destinos = [row["ente_clave"] for row in cur.fetchall()]
+            ruta_original = solicitud.get("ruta_destino")
+        else:
+            cur.execute("""
+                SELECT pasajeros_ids, ruta_destino
+                FROM prestamos_vehiculos
+                WHERE id=?
+            """, (solicitud_id,))
+            row = cur.fetchone()
+            pasajeros_ids = [
+                int(raw_id)
+                for raw_id in (row["pasajeros_ids"] or "").split(",")
+                if raw_id.strip().isdigit()
+            ]
+            ruta_destinos = []
+            ruta_original = row["ruta_destino"]
+
+        if not ruta_destinos:
+            ruta_destinos, _, _ = self._resolver_destinos_cursor(
+                cur,
+                _split_ruta_destino(ruta_original),
+            )
+        cur.execute("""
+            SELECT id
+            FROM auditores
+            WHERE activo=1
+              AND LOWER(TRIM(nombre)) = LOWER(TRIM(?))
+            LIMIT 1
+        """, (solicitud.get("responsable_vehiculo"),))
+        responsable = cur.fetchone()
+        conn.close()
+        solicitud.update({
+            "tipo": tipo,
+            "responsable_auditor_id": responsable["id"] if responsable else None,
+            "pasajeros_ids": pasajeros_ids,
+            "ruta_destinos": ruta_destinos,
+        })
+        return solicitud
+
+    def actualizar_solicitud_reporte(
+        self,
+        tipo: str,
+        solicitud_id: int,
+        vehiculo_id: int,
+        fecha_solicitud: str,
+        responsable_auditor_id: int,
+        pasajeros_ids: List[int],
+        ruta_destinos: List[str],
+        motivo_salida: str,
+        usuario_id: int,
+    ) -> Tuple[bool, str]:
+        if tipo not in {"movimiento", "prestamo"}:
+            return False, "Tipo de solicitud no valido."
+        fecha_txt = _parse_date(fecha_solicitud)
+        if not fecha_txt:
+            return False, "La fecha de salida no es valida."
+        if motivo_salida not in MOTIVOS_SALIDA_VALIDOS:
+            return False, "El motivo de salida no es valido."
+        if len(pasajeros_ids) > 4:
+            return False, "Solo se permiten hasta 4 acompanantes."
+        if len(pasajeros_ids) != len(set(pasajeros_ids)):
+            return False, "Hay acompanantes duplicados."
+        if responsable_auditor_id in pasajeros_ids:
+            return False, "El responsable no puede seleccionarse tambien como acompanante."
+
+        conn = self._connect()
+        cur = conn.cursor()
+        if tipo == "movimiento":
+            cur.execute("""
+                SELECT id, usuario_id AS solicitante_id, NULL AS solicitante_usuario
+                FROM movimientos m
+                WHERE id=?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM movimientos_eventos me
+                      WHERE me.movimiento_id=m.id AND me.evento='RECHAZADO'
+                  )
+            """, (solicitud_id,))
+        else:
+            cur.execute("""
+                SELECT p.id, p.solicitante_id, u.usuario AS solicitante_usuario
+                FROM prestamos_vehiculos p
+                JOIN usuarios u ON u.id=p.solicitante_id
+                WHERE p.id=? AND p.estado!='RECHAZADO'
+            """, (solicitud_id,))
+        solicitud = cur.fetchone()
+        if not solicitud:
+            conn.close()
+            return False, "La solicitud no existe o fue rechazada."
+
+        cur.execute("""
+            SELECT id, placa, marca, modelo
+            FROM vehiculos
+            WHERE id=? AND activo=1
+        """, (vehiculo_id,))
+        vehiculo = cur.fetchone()
+        if not vehiculo:
+            conn.close()
+            return False, "Vehiculo no encontrado."
+        resguardante = self._obtener_resguardantes_vehiculo_cursor(cur, vehiculo_id)
+        if not resguardante or resguardante["id"] is None:
+            conn.close()
+            return False, "La unidad debe tener un resguardante unico asignado."
+        if tipo == "prestamo" and solicitud["solicitante_id"] == resguardante["id"]:
+            conn.close()
+            return False, "Un prestamo debe usar una unidad asignada a otro usuario."
+        if (
+            tipo == "prestamo"
+            and vehiculo["placa"].strip().upper() in PLACAS_SOLO_PROPIETARIO
+            and (solicitud["solicitante_usuario"] or "").strip().lower() != "angel"
+        ):
+            conn.close()
+            return False, "El vehiculo solo esta disponible para Angel."
+
+        movimiento_excluido = solicitud_id if tipo == "movimiento" else -1
+        prestamo_excluido = solicitud_id if tipo == "prestamo" else -1
+        cur.execute("""
+            SELECT 1
+            FROM movimientos m
+            WHERE m.vehiculo_id=? AND m.fecha_solicitud=? AND m.id!=?
+              AND NOT EXISTS (
+                  SELECT 1 FROM movimientos_eventos me
+                  WHERE me.movimiento_id=m.id AND me.evento='RECHAZADO'
+              )
+            LIMIT 1
+        """, (vehiculo_id, fecha_txt, movimiento_excluido))
+        vehiculo_ocupado = bool(cur.fetchone())
+        if not vehiculo_ocupado:
+            cur.execute("""
+                SELECT 1
+                FROM prestamos_vehiculos p
+                WHERE p.vehiculo_id=? AND p.estado IN ('PENDIENTE', 'VALIDADO') AND p.id!=?
+                  AND (
+                      (
+                          TRIM(COALESCE(p.fechas_solicitadas, '')) != ''
+                          AND (',' || p.fechas_solicitadas || ',') LIKE '%,' || ? || ',%'
+                      )
+                      OR (
+                          TRIM(COALESCE(p.fechas_solicitadas, '')) = ''
+                          AND p.fecha_solicitud=?
+                      )
+                  )
+                LIMIT 1
+            """, (vehiculo_id, prestamo_excluido, fecha_txt, fecha_txt))
+            vehiculo_ocupado = bool(cur.fetchone())
+        if vehiculo_ocupado:
+            conn.close()
+            return False, "La unidad ya esta asignada para esa fecha."
+
+        responsable = self._obtener_responsable(cur, "auditor", responsable_auditor_id)
+        if not responsable:
+            conn.close()
+            return False, "Responsable no encontrado."
+        responsable_nombre, responsable_id = responsable
+
+        if pasajeros_ids:
+            placeholders = ",".join("?" for _ in pasajeros_ids)
+            cur.execute(
+                f"SELECT id FROM auditores WHERE activo=1 AND id IN ({placeholders})",
+                pasajeros_ids,
+            )
+            if len(cur.fetchall()) != len(pasajeros_ids):
+                conn.close()
+                return False, "Uno o mas acompanantes no existen."
+        ocupados = self._obtener_auditores_ocupados_cursor(
+            cur,
+            fecha_txt,
+            movimiento_excluido if movimiento_excluido > 0 else None,
+            prestamo_excluido if prestamo_excluido > 0 else None,
+        )
+        if responsable_id in ocupados or any(pid in ocupados for pid in pasajeros_ids):
+            conn.close()
+            return False, "El responsable o uno de los acompanantes ya esta asignado para esa fecha."
+
+        destinos, nombres_destinos, destinos_faltantes = self._resolver_destinos_cursor(
+            cur,
+            ruta_destinos,
+        )
+        if not destinos:
+            conn.close()
+            return False, "Falta seleccionar la ruta destino."
+        if destinos_faltantes:
+            conn.close()
+            return False, "Uno o mas destinos no existen."
+        ruta_legible = " -> ".join(
+            "CCLET" if clave == "CCLET" else (nombres_destinos.get(clave) or clave)
+            for clave in destinos
+        )
+
+        try:
+            if tipo == "movimiento":
+                cur.execute("""
+                    UPDATE movimientos
+                    SET ente_clave=?, fecha_solicitud=?, resguardante_nombre=?, resguardante_id=?,
+                        placa_unidad=?, marca=?, modelo=?, responsable_vehiculo=?, vehiculo_id=?,
+                        responsable_id=?, no_pasajeros=?, ruta_destino=?, motivo_salida=?
+                    WHERE id=?
+                """, (
+                    destinos[0], fecha_txt, resguardante["nombre"], resguardante["id"],
+                    vehiculo["placa"], vehiculo["marca"], vehiculo["modelo"],
+                    responsable_nombre, vehiculo_id, responsable_id, len(pasajeros_ids),
+                    " -> ".join(destinos), motivo_salida, solicitud_id,
+                ))
+                cur.execute("DELETE FROM movimientos_auditores WHERE movimiento_id=?", (solicitud_id,))
+                cur.executemany(
+                    "INSERT INTO movimientos_auditores (movimiento_id, auditor_id) VALUES (?, ?)",
+                    [(solicitud_id, auditor_id) for auditor_id in pasajeros_ids],
+                )
+                cur.execute("DELETE FROM movimientos_destinos WHERE movimiento_id=?", (solicitud_id,))
+                cur.executemany(
+                    """
+                        INSERT INTO movimientos_destinos (movimiento_id, ente_clave, orden)
+                        VALUES (?, ?, ?)
+                    """,
+                    [
+                        (solicitud_id, clave, orden)
+                        for orden, clave in enumerate(destinos, start=1)
+                    ],
+                )
+                self._registrar_evento(
+                    cur,
+                    solicitud_id,
+                    usuario_id,
+                    "EDITADO",
+                    "Datos del reporte actualizados por monitor.",
+                )
+            else:
+                cur.execute("""
+                    UPDATE prestamos_vehiculos
+                    SET propietario_id=?, vehiculo_id=?, fecha_solicitud=?, fechas_solicitadas=?,
+                        responsable_id=?, responsable_nombre=?, no_pasajeros=?, pasajeros_ids=?,
+                        ruta_destino=?, motivo_salida=?
+                    WHERE id=?
+                """, (
+                    resguardante["id"], vehiculo_id, fecha_txt, fecha_txt,
+                    responsable_id, responsable_nombre, len(pasajeros_ids),
+                    ",".join(str(pid) for pid in pasajeros_ids) or None,
+                    ruta_legible, motivo_salida, solicitud_id,
+                ))
+            conn.commit()
+        except sqlite3.Error:
+            conn.rollback()
+            logger.exception("No se pudo actualizar la solicitud %s %s", tipo, solicitud_id)
+            conn.close()
+            return False, "No se pudo guardar la solicitud. Intente de nuevo."
+        conn.close()
+        return True, "Solicitud actualizada correctamente."
 
     def marcar_entregado(self, movimiento_id: int, usuario_id: int) -> Tuple[bool, str]:
         conn = self._connect()

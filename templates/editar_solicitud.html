@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}EDITAR SOLICITUD · INVENTARIO VEHICULAR{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="card-header">
+    <div>
+      <h2>Editar solicitud</h2>
+      <p class="subtitle">Corrija los datos que se muestran en el reporte impreso.</p>
+    </div>
+    <a class="btn ghost" href="{{ url_for('admin', fecha=fecha_consulta) }}">Volver al monitor</a>
+  </div>
+
+  {% if error %}
+  <div class="alert full" role="alert">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" class="form" autocomplete="off">
+    <input type="hidden" name="fecha_consulta" value="{{ fecha_consulta }}">
+
+    <fieldset class="form-section">
+      <legend>Datos protegidos</legend>
+      <label>
+        Folio
+        <input type="text" value="{{ solicitud.folio }}" readonly>
+      </label>
+      <label>
+        Solicitante
+        <input type="text" value="{{ solicitud.usuario_nombre }}" readonly>
+      </label>
+    </fieldset>
+
+    <fieldset class="form-section">
+      <legend>Unidad y fecha</legend>
+      <label class="full">
+        Unidad solicitada
+        <select name="vehiculo_id" required>
+          <option value="">Seleccione una unidad</option>
+          {% for vehiculo in vehiculos %}
+          {% if solicitud.tipo != "prestamo" or vehiculo.propietario_id != solicitud.solicitante_id %}
+          <option value="{{ vehiculo.id }}" {% if vehiculo.id == solicitud.vehiculo_id %}selected{% endif %}>
+            {{ vehiculo.placa }} · {{ vehiculo.marca }} {{ vehiculo.modelo }} · {{ vehiculo.propietarios_nombres or "Sin resguardante" }}
+          </option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Fecha de salida
+        <input type="date" name="fecha_solicitud" value="{{ solicitud.fecha_solicitud }}" required>
+      </label>
+    </fieldset>
+
+    <fieldset class="form-section">
+      <legend>Personal</legend>
+      <label class="full">
+        Responsable del vehículo
+        <select name="responsable_auditor_id" required>
+          <option value="">Seleccione un responsable</option>
+          {% for auditor in auditores %}
+          <option value="{{ auditor.id }}" {% if auditor.id == solicitud.responsable_auditor_id %}selected{% endif %}>
+            {{ auditor.nombre }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="full">
+        Acompañantes
+        <select name="pasajeros_ids" multiple size="8" aria-describedby="pasajeros-ayuda">
+          {% for auditor in auditores %}
+          <option value="{{ auditor.id }}" {% if auditor.id in solicitud.pasajeros_ids %}selected{% endif %}>
+            {{ auditor.nombre }}
+          </option>
+          {% endfor %}
+        </select>
+        <span class="hint" id="pasajeros-ayuda">Seleccione hasta 4. El responsable no debe repetirse; el conductor se suma automáticamente al total impreso.</span>
+      </label>
+    </fieldset>
+
+    <fieldset class="form-section">
+      <legend>Ruta y motivo</legend>
+      <label class="full">
+        Ruta - destinos
+        <select name="ruta_destinos" multiple size="8" required aria-describedby="ruta-ayuda">
+          {% for ente in entes %}
+          <option value="{{ ente.clave }}" {% if ente.clave in solicitud.ruta_destinos %}selected{% endif %}>
+            {{ ente.nombre }}
+          </option>
+          {% endfor %}
+        </select>
+        <span class="hint" id="ruta-ayuda">Seleccione uno o más destinos.</span>
+      </label>
+      <label class="full">
+        Motivo de salida
+        <select name="motivo_salida" required>
+          <option value="">Seleccione un motivo</option>
+          {% for motivo in motivos_salida %}
+          <option value="{{ motivo }}" {% if motivo == solicitud.motivo_salida %}selected{% endif %}>{{ motivo }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </fieldset>
+
+    <div class="actions-inline">
+      <button class="btn primary" type="submit">Guardar cambios</button>
+      <a class="btn ghost" href="{{ url_for('admin', fecha=fecha_consulta) }}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

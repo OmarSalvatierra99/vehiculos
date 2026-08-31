@@ -56,7 +56,7 @@
           Placa de la unidad
           <select name="vehiculo_id" id="vehiculo_id" required>
             {% if vehiculos %}
-            <optgroup label="Mis unidades">
+            <optgroup label="{{ vehiculos_grupo_label or 'Mis unidades' }}">
               {% for vehiculo in vehiculos %}
               <option value="{{ vehiculo.id }}:{{ usuario_id }}"
                 data-scope="propio"
@@ -64,7 +64,7 @@
                 data-modelo="{{ vehiculo.modelo }}"
                 data-placa="{{ vehiculo.placa }}"
                 data-categoria="{{ vehiculo.categoria }}"
-                data-propietario="{{ vehiculo.propietarios_nombres or usuario }}">
+                data-propietario="{{ vehiculo.propietarios_nombres or 'Sin resguardante' }}">
                 {{ vehiculo.placa }} · {{ vehiculo.categoria }}
               </option>
               {% endfor %}
@@ -172,7 +172,9 @@
               <span class="chip-empty">Ningún auditor seleccionado</span>
             </div>
           </div>
-          <p class="hint" id="pasajeros_compulsa_hint">Mostrando personal a tu cargo.</p>
+          <p class="hint" id="pasajeros_compulsa_hint">
+            {% if personal_global %}Mostrando todo el personal del OFS.{% else %}Mostrando personal a tu cargo.{% endif %}
+          </p>
           <div class="passenger-note">
             <strong>Importante</strong>
             <p>El conductor cuenta como pasajero. Seleccione únicamente el número de acompañantes</p>

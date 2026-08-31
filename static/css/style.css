@@ -1136,6 +1136,12 @@ textarea {
   border: 1px solid #e2b8b4;
 }
 
+.alert.success {
+  background: #e7f2ec;
+  border-color: #b8d4c3;
+  color: #285b43;
+}
+
 .passenger-note {
   margin-top: 16px;
   padding: 12px 14px;
