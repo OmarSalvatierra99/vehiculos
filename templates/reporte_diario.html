@@ -3,8 +3,7 @@
 {% block title %}REPORTES · INVENTARIO VEHICULAR{% endblock %}
 
 {% block content %}
-{% set movimientos_len = movimientos|length if movimientos else 0 %}
-<section class="card report{% if movimientos_len >= 16 %} report-ultra{% elif movimientos_len > 10 %} report-compact{% elif movimientos_len > 5 %} report-tight{% endif %}">
+<section class="card report report-daily">
   <div class="report-doc-header">
     <div class="report-doc-logo">
       <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo institucional">
@@ -88,7 +87,7 @@
 
   {% if can_print %}
   <div class="actions report-actions">
-    <button class="btn primary" type="button" onclick="window.print()">Imprimir reporte</button>
+    <button class="btn primary" id="print-report" type="button">Imprimir reporte</button>
   </div>
   {% else %}
   <div class="alert">Solo el administrador puede imprimir este reporte.</div>
@@ -100,51 +99,77 @@
 <script>
   (() => {
     const report = document.querySelector(".report");
-    if (!report) return;
+    const contentInner = document.querySelector(".content-inner");
+    const printButton = document.querySelector("#print-report");
+    if (!report || !contentInner) return;
 
-    const fitForPrint = () => {
-      report.classList.add("report-fit-print");
-      report.style.setProperty("--print-fit-scale", "1");
-
-      const pxPerMm = 96 / 25.4;
-      const pageWidth = (279.4 - 8 - 10) * pxPerMm;
-      const pageHeight = (215.9 - 8) * pxPerMm;
-      const reportWidth = report.scrollWidth;
-      const reportHeight = report.scrollHeight;
-
-      if (!reportWidth || !reportHeight) return;
-
-      const widthScale = pageWidth / reportWidth;
-      const heightScale = pageHeight / reportHeight;
-      const scale = Math.min(1, widthScale, heightScale);
-
-      report.style.setProperty("--print-fit-scale", String(Math.max(scale, 0.35)));
-    };
+    const densityClasses = ["report-tight", "report-compact", "report-ultra"];
+    const pxPerMm = 96 / 25.4;
+    const pageWidth = 271.4 * pxPerMm;
+    const pageHeight = 207.9 * pxPerMm;
 
     const clearPrintFit = () => {
-      report.classList.remove("report-fit-print");
+      document.body.classList.remove("report-printing");
+      report.classList.remove(...densityClasses);
       report.style.removeProperty("--print-fit-scale");
+      report.style.removeProperty("--print-fit-left");
+      contentInner.style.removeProperty("--print-fit-height");
+      if (!report.style.length) report.removeAttribute("style");
+      if (!contentInner.style.length) contentInner.removeAttribute("style");
     };
 
+    const fitForPrint = () => {
+      clearPrintFit();
+      document.body.classList.add("report-printing");
+      report.style.setProperty("--print-fit-scale", "1");
+
+      for (const densityClass of ["", ...densityClasses]) {
+        report.classList.remove(...densityClasses);
+        if (densityClass) report.classList.add(densityClass);
+        void report.offsetHeight;
+
+        if (report.scrollWidth <= Math.ceil(pageWidth) && report.scrollHeight <= Math.ceil(pageHeight)) {
+          break;
+        }
+      }
+
+      const reportRect = report.getBoundingClientRect();
+      const reportWidth = Math.max(report.scrollWidth, reportRect.width);
+      const reportHeight = Math.max(report.scrollHeight, reportRect.height);
+      if (!reportWidth || !reportHeight) return;
+
+      const widthScale = reportWidth <= Math.ceil(pageWidth) ? 1 : pageWidth / reportWidth;
+      const scale = Math.min(1, widthScale, pageHeight / reportHeight);
+      report.style.setProperty("--print-fit-scale", String(scale));
+      report.style.setProperty("--print-fit-left", `${Math.max(0, (pageWidth - reportWidth * scale) / 2)}px`);
+      contentInner.style.setProperty("--print-fit-height", `${reportHeight * scale}px`);
+    };
+
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const waitForLogo = async () => {
+      const logo = report.querySelector(".report-doc-logo img");
+      if (!logo) return;
+      if (!logo.complete) {
+        await new Promise((resolve) => {
+          logo.addEventListener("load", resolve, { once: true });
+          logo.addEventListener("error", resolve, { once: true });
+        });
+      }
+      if (logo.decode) await logo.decode().catch(() => {});
+    };
+
+    const printReport = async () => {
+      await Promise.all([document.fonts?.ready, waitForLogo()]);
+      fitForPrint();
+      await nextFrame();
+      await nextFrame();
+      window.print();
+    };
+
+    printButton?.addEventListener("click", printReport);
     window.addEventListener("beforeprint", fitForPrint);
     window.addEventListener("afterprint", clearPrintFit);
-
-    if (window.matchMedia) {
-      const printMedia = window.matchMedia("print");
-      const handleChange = (event) => {
-        if (event.matches) {
-          fitForPrint();
-          return;
-        }
-        clearPrintFit();
-      };
-
-      if (printMedia.addEventListener) {
-        printMedia.addEventListener("change", handleChange);
-      } else if (printMedia.addListener) {
-        printMedia.addListener(handleChange);
-      }
-    }
   })();
 </script>
 {% endblock %}

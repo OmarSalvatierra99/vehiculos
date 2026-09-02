@@ -1437,10 +1437,6 @@ textarea {
 }
 
 @media print {
-  :root {
-    --print-side-gap: 5mm;
-  }
-
   @page {
     size: letter landscape;
     margin: 4mm;
@@ -1448,9 +1444,10 @@ textarea {
 
   html,
   body {
-    width: 279.4mm;
-    min-height: 215.9mm;
+    width: auto;
+    min-height: 0;
     margin: 0;
+    overflow: visible;
     background: #ffffff;
     color: #000000;
   }
@@ -1466,19 +1463,13 @@ textarea {
   .page,
   .content,
   .content-inner {
+    display: block;
     width: 100%;
     max-width: none;
+    min-height: 0;
+    height: auto;
     padding: 0;
     margin: 0;
-  }
-
-  .content,
-  .content-inner {
-    height: auto;
-  }
-
-  .content-inner {
-    display: block;
   }
 
   .content-inner > * {
@@ -1496,21 +1487,14 @@ textarea {
     flex-direction: column;
     box-shadow: none;
     border: none;
-    width: calc(100% - (var(--print-side-gap) * 2));
-    max-width: calc(100% - (var(--print-side-gap) * 2));
+    width: 100%;
+    max-width: none;
     page-break-after: avoid;
     page-break-inside: avoid;
     height: auto;
     min-height: 0;
     padding: 0 !important;
-    margin: 0 var(--print-side-gap);
-  }
-
-  .report-fit-print {
-    --print-fit-scale: 1;
-    transform-origin: top left;
-    transform: scale(var(--print-fit-scale));
-    width: calc(100% / var(--print-fit-scale));
+    margin: 0;
   }
 
   .report-actions {
@@ -1616,128 +1600,6 @@ textarea {
     letter-spacing: 0.08em;
   }
 
-  .report-tight .report-doc-name {
-    font-size: 0.56rem;
-  }
-
-  .report-tight .report-doc-tag {
-    font-size: 0.46rem;
-  }
-
-  .report-tight .report-doc-key {
-    font-size: 0.48rem;
-  }
-
-  .report-tight .report-header h2 {
-    font-size: 0.62rem;
-  }
-
-  .report-tight .report-subtitle,
-  .report-tight .report-warning {
-    font-size: 0.42rem;
-  }
-
-  .report-tight .table {
-    font-size: 5.2pt;
-  }
-
-  .report-tight .table-row span {
-    padding: 3px 5px;
-    line-height: 1.1;
-  }
-
-  .report-tight .table-row.header span {
-    font-size: 5pt;
-    letter-spacing: 0.05em;
-  }
-
-  .report-compact .table-row span {
-    font-size: 7pt;
-    padding: 3px 5px;
-    line-height: 1.08;
-  }
-
-  .report-compact .table-row.header span {
-    font-size: 4.6pt;
-    letter-spacing: 0.04em;
-  }
-
-  .report-ultra .report-doc-header {
-    padding: 4px 5px;
-    gap: 6px;
-  }
-
-  .report-ultra .report-doc-logo img {
-    width: 38px;
-    height: 38px;
-  }
-
-  .report-ultra .report-doc-tags {
-    gap: 3px;
-  }
-
-  .report-ultra .report-doc-name {
-    font-size: 0.44rem;
-    line-height: 1.1;
-  }
-
-  .report-ultra .report-doc-tag {
-    font-size: 0.42rem;
-    padding: 2px 4px;
-  }
-
-  .report-ultra .report-doc-key {
-    font-size: 0.42rem;
-    padding: 4px 6px;
-  }
-
-  .report-ultra .report-doc-key span {
-    font-size: 0.38rem;
-  }
-
-  .report-ultra .report-doc-key strong {
-    font-size: 0.44rem;
-  }
-
-  .report-ultra .report-header h2 {
-    font-size: 0.58rem;
-  }
-
-  .report-ultra .report-subtitle,
-  .report-ultra .report-warning {
-    font-size: 0.38rem;
-  }
-
-  .report-ultra .report-warning {
-    margin-top: 4px;
-  }
-
-  .report-ultra .report-header {
-    margin-bottom: 6px;
-  }
-
-  .report-ultra .report-grid {
-    margin: 8px 0 4px;
-  }
-
-  .report-ultra .table {
-    font-size: 4.6pt;
-  }
-
-  .report-ultra .table-row span {
-    padding: 2px 3px;
-    line-height: 1.04;
-  }
-
-  .report-ultra .table-row.header span {
-    font-size: 4.2pt;
-    letter-spacing: 0.03em;
-  }
-
-  .report-ultra .signature-line {
-    height: 16px;
-  }
-
   .signature {
     margin-top: 18px;
   }
@@ -1745,6 +1607,285 @@ textarea {
   .signature-line {
     height: 24px;
   }
+}
+
+body.report-printing {
+  margin: 0;
+  overflow: visible;
+  background: #ffffff;
+  color: #000000;
+}
+
+body.report-printing .gov-topbar,
+body.report-printing .gov-header,
+body.report-printing .footer,
+body.report-printing .nav-links,
+body.report-printing .user-area {
+  display: none !important;
+}
+
+body.report-printing .page,
+body.report-printing .content,
+body.report-printing .content-inner {
+  display: block;
+  max-width: none;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+}
+
+body.report-printing .content-inner {
+  position: relative;
+  width: 271.4mm;
+  height: var(--print-fit-height);
+}
+
+body.report-printing .content-inner > * {
+  display: none !important;
+}
+
+body.report-printing .content-inner > .report-daily {
+  display: block !important;
+}
+
+body.report-printing .report-daily {
+  --report-header-gap: 8px;
+  --report-header-padding: 4px 6px;
+  --report-header-margin: 8px;
+  --report-logo-size: 42px;
+  --report-name-size: 6pt;
+  --report-tag-size: 4.5pt;
+  --report-key-size: 4.8pt;
+  --report-title-size: 7pt;
+  --report-subtitle-size: 5.2pt;
+  --report-warning-size: 5pt;
+  --report-cell-size: 6pt;
+  --report-head-size: 5.5pt;
+  --report-cell-padding: 3px 4px;
+  --report-line-height: 1.1;
+  --report-signature-margin: 14px;
+  --report-signature-height: 20px;
+  position: absolute;
+  top: 0;
+  left: var(--print-fit-left, 0);
+  width: 100%;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  padding: 0 !important;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+  transform: scale(var(--print-fit-scale, 1));
+  transform-origin: top left;
+  page-break-inside: avoid;
+  page-break-after: avoid;
+}
+
+body.report-printing .report-daily.report-tight {
+  --report-header-gap: 6px;
+  --report-header-padding: 3px 5px;
+  --report-header-margin: 6px;
+  --report-logo-size: 38px;
+  --report-name-size: 5.5pt;
+  --report-tag-size: 4.2pt;
+  --report-key-size: 4.5pt;
+  --report-title-size: 6.5pt;
+  --report-subtitle-size: 4.8pt;
+  --report-warning-size: 4.6pt;
+  --report-cell-size: 5.5pt;
+  --report-head-size: 5pt;
+  --report-cell-padding: 2.5px 3.5px;
+  --report-line-height: 1.08;
+  --report-signature-margin: 11px;
+  --report-signature-height: 16px;
+}
+
+body.report-printing .report-daily.report-compact {
+  --report-header-gap: 5px;
+  --report-header-padding: 3px 4px;
+  --report-header-margin: 5px;
+  --report-logo-size: 34px;
+  --report-name-size: 5pt;
+  --report-tag-size: 3.9pt;
+  --report-key-size: 4.1pt;
+  --report-title-size: 6pt;
+  --report-subtitle-size: 4.4pt;
+  --report-warning-size: 4.2pt;
+  --report-cell-size: 5pt;
+  --report-head-size: 4.6pt;
+  --report-cell-padding: 2px 3px;
+  --report-line-height: 1.05;
+  --report-signature-margin: 8px;
+  --report-signature-height: 12px;
+}
+
+body.report-printing .report-daily.report-ultra {
+  --report-header-gap: 4px;
+  --report-header-padding: 2px 4px;
+  --report-header-margin: 4px;
+  --report-logo-size: 30px;
+  --report-name-size: 4.5pt;
+  --report-tag-size: 3.6pt;
+  --report-key-size: 3.8pt;
+  --report-title-size: 5.5pt;
+  --report-subtitle-size: 4pt;
+  --report-warning-size: 3.8pt;
+  --report-cell-size: 4.5pt;
+  --report-head-size: 4.1pt;
+  --report-cell-padding: 1.5px 2.5px;
+  --report-line-height: 1.02;
+  --report-signature-margin: 5px;
+  --report-signature-height: 8px;
+}
+
+body.report-printing .report-daily .report-actions,
+body.report-printing .report-daily > .alert {
+  display: none !important;
+}
+
+body.report-printing .report-daily .report-doc-header {
+  grid-template-columns: 70px 1fr 130px;
+  gap: var(--report-header-gap);
+  padding: var(--report-header-padding);
+  margin-bottom: var(--report-header-margin);
+  border: 1px solid #000000;
+  border-radius: 0;
+  box-shadow: none;
+  page-break-inside: avoid;
+}
+
+body.report-printing .report-daily .report-doc-logo img {
+  width: var(--report-logo-size);
+  height: var(--report-logo-size);
+}
+
+body.report-printing .report-daily .report-doc-title {
+  gap: 3px;
+}
+
+body.report-printing .report-daily .report-doc-name {
+  font-size: var(--report-name-size);
+  line-height: var(--report-line-height);
+}
+
+body.report-printing .report-daily .report-doc-tags {
+  gap: 3px;
+}
+
+body.report-printing .report-daily .report-doc-tag {
+  padding: 2px 4px;
+  border-color: #000000;
+  background: #ffffff;
+  font-size: var(--report-tag-size);
+  line-height: var(--report-line-height);
+}
+
+body.report-printing .report-daily .report-doc-key {
+  gap: 2px;
+  padding: 3px 5px;
+  border-color: #000000;
+  font-size: var(--report-key-size);
+  line-height: var(--report-line-height);
+}
+
+body.report-printing .report-daily .report-doc-key strong {
+  font-size: inherit;
+}
+
+body.report-printing .report-daily .report-header h2 {
+  margin: 0 0 2px;
+  font-size: var(--report-title-size);
+  line-height: var(--report-line-height);
+  page-break-after: avoid;
+}
+
+body.report-printing .report-daily .report-subtitle {
+  font-size: var(--report-subtitle-size);
+  line-height: var(--report-line-height);
+}
+
+body.report-printing .report-daily .report-warning {
+  margin: 3px 0 0;
+  padding: 3px 5px;
+  border-color: #000000;
+  border-radius: 0;
+  background: #ffffff;
+  color: #000000;
+  font-size: var(--report-warning-size);
+  line-height: var(--report-line-height);
+}
+
+body.report-printing .report-daily .table {
+  display: table;
+  width: 100%;
+  max-width: none;
+  margin: 4px 0 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  overflow: visible;
+  font-size: var(--report-cell-size);
+  page-break-inside: avoid;
+}
+
+body.report-printing .report-daily .table-row {
+  display: table-row;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  page-break-inside: avoid;
+}
+
+body.report-printing .report-daily .table-row span {
+  display: table-cell;
+  padding: var(--report-cell-padding);
+  border: 1px solid #000000;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  vertical-align: middle;
+  font-size: var(--report-cell-size);
+  line-height: var(--report-line-height);
+  text-align: left;
+}
+
+body.report-printing .report-daily .table-row.header span {
+  background: #e6e6e6;
+  font-size: var(--report-head-size);
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+body.report-printing .report-daily .center-print {
+  text-align: center;
+}
+
+body.report-printing .report-daily .table-row span:nth-child(1) { width: 4%; }
+body.report-printing .report-daily .table-row span:nth-child(2) { width: 12%; }
+body.report-printing .report-daily .table-row span:nth-child(3) { width: 8%; }
+body.report-printing .report-daily .table-row span:nth-child(4) { width: 7%; }
+body.report-printing .report-daily .table-row span:nth-child(5) { width: 6%; }
+body.report-printing .report-daily .table-row span:nth-child(6) { width: 13%; }
+body.report-printing .report-daily .table-row span:nth-child(7) { width: 6%; }
+body.report-printing .report-daily .table-row span:nth-child(8) { width: 15%; }
+body.report-printing .report-daily .table-row span:nth-child(9) { width: 16%; }
+body.report-printing .report-daily .table-row span:nth-child(10) { width: 13%; }
+
+body.report-printing .report-daily .signature {
+  gap: 3px;
+  margin-top: var(--report-signature-margin);
+}
+
+body.report-printing .report-daily .signature-line {
+  width: 38%;
+  height: var(--report-signature-height);
+}
+
+body.report-printing .report-daily .report-label {
+  font-size: 4.5pt;
 }
 
 @media (max-width: 900px) {
