@@ -105,6 +105,16 @@
 
     const densityClasses = ["report-tight", "report-compact", "report-ultra"];
     const rows = [...report.querySelectorAll(".table-row:not(.header)")];
+    const sparseClasses = [
+      "report-sparse-1",
+      "report-sparse-2",
+      "report-sparse-3",
+      "report-sparse-4",
+    ];
+    const sparseClass = rows.length >= 1 && rows.length <= 4
+      ? sparseClasses[rows.length - 1]
+      : "";
+    const sparseRowHeightMm = [40, 31.5, 25.5, 21.5];
     const pxPerMm = 96 / 25.4;
     const pageWidth = 271.4 * pxPerMm;
     const pageHeight = 207.9 * pxPerMm;
@@ -118,7 +128,12 @@
 
     const clearPrintFit = () => {
       document.body.classList.remove("report-printing");
-      report.classList.remove(...densityClasses, "report-measuring", "report-scaled");
+      report.classList.remove(
+        ...densityClasses,
+        ...sparseClasses,
+        "report-measuring",
+        "report-scaled",
+      );
       clearRowHeights();
       report.style.removeProperty("--print-fit-scale");
       report.style.removeProperty("--print-fit-left");
@@ -173,12 +188,22 @@
       const extraSpace = availableTableBodyHeight - measurement.heights.tableBody;
       if (extraSpace <= 0 || !rows.length) return;
 
-      const averageNaturalHeight = measurement.heights.tableBody / rows.length;
-      const maxExtraPerRow = Math.min(18 * pxPerMm, Math.max(32, averageNaturalHeight * 2));
-      const extraPerRow = Math.min(extraSpace / rows.length, maxExtraPerRow);
-      rows.forEach((row, index) => {
-        row.style.height = `${measurement.rowHeights[index] + extraPerRow}px`;
-      });
+      if (sparseClass) {
+        const targetHeight = sparseRowHeightMm[rows.length - 1] * pxPerMm;
+        const desiredGrowth = measurement.rowHeights.map((height) => Math.max(0, targetHeight - height));
+        const desiredTotal = desiredGrowth.reduce((total, height) => total + height, 0);
+        const growthRatio = desiredTotal ? Math.min(1, extraSpace / desiredTotal) : 0;
+        rows.forEach((row, index) => {
+          row.style.height = `${measurement.rowHeights[index] + desiredGrowth[index] * growthRatio}px`;
+        });
+      } else {
+        const averageNaturalHeight = measurement.heights.tableBody / rows.length;
+        const maxExtraPerRow = Math.min(18 * pxPerMm, Math.max(32, averageNaturalHeight * 2));
+        const extraPerRow = Math.min(extraSpace / rows.length, maxExtraPerRow);
+        rows.forEach((row, index) => {
+          row.style.height = `${measurement.rowHeights[index] + extraPerRow}px`;
+        });
+      }
 
       if (report.scrollHeight > Math.ceil(printableHeight)) clearRowHeights();
     };
@@ -187,6 +212,7 @@
       if (document.body.classList.contains("report-printing")) return;
       clearPrintFit();
       document.body.classList.add("report-printing");
+      if (sparseClass) report.classList.add(sparseClass);
       report.style.setProperty("--print-fit-scale", "1");
 
       const printableRect = report.getBoundingClientRect();

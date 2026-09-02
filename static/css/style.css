@@ -1694,6 +1694,46 @@ body.report-printing .report-sheet.report-scaled {
   height: auto;
 }
 
+body.report-printing .report-daily.report-sparse-1 {
+  --report-title-size: 9pt;
+  --report-subtitle-size: 6.6pt;
+  --report-warning-size: 6.2pt;
+  --report-cell-size: 8pt;
+  --report-head-size: 7.2pt;
+  --report-cell-padding: 10px 8px;
+  --report-line-height: 1.2;
+}
+
+body.report-printing .report-daily.report-sparse-2 {
+  --report-title-size: 8.6pt;
+  --report-subtitle-size: 6.3pt;
+  --report-warning-size: 6pt;
+  --report-cell-size: 7.6pt;
+  --report-head-size: 6.8pt;
+  --report-cell-padding: 8px 7px;
+  --report-line-height: 1.18;
+}
+
+body.report-printing .report-daily.report-sparse-3 {
+  --report-title-size: 8.2pt;
+  --report-subtitle-size: 6pt;
+  --report-warning-size: 5.7pt;
+  --report-cell-size: 7.2pt;
+  --report-head-size: 6.5pt;
+  --report-cell-padding: 6px;
+  --report-line-height: 1.16;
+}
+
+body.report-printing .report-daily.report-sparse-4 {
+  --report-title-size: 7.6pt;
+  --report-subtitle-size: 5.6pt;
+  --report-warning-size: 5.3pt;
+  --report-cell-size: 6.7pt;
+  --report-head-size: 6pt;
+  --report-cell-padding: 4.5px 5px;
+  --report-line-height: 1.12;
+}
+
 body.report-printing .report-daily.report-tight {
   --report-header-gap: 6px;
   --report-header-padding: 3px 5px;
