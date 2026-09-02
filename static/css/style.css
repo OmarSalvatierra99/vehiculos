@@ -1636,19 +1636,21 @@ body.report-printing .content-inner {
 
 body.report-printing .content-inner {
   position: relative;
-  width: 271.4mm;
-  height: var(--print-fit-height);
+  width: calc(11in - 8mm);
+  height: var(--print-fit-height, calc(8.5in - 8mm));
+  box-sizing: border-box;
+  overflow: visible;
 }
 
 body.report-printing .content-inner > * {
   display: none !important;
 }
 
-body.report-printing .content-inner > .report-daily {
-  display: block !important;
+body.report-printing .content-inner > .report-sheet {
+  display: flex !important;
 }
 
-body.report-printing .report-daily {
+body.report-printing .report-sheet {
   --report-header-gap: 8px;
   --report-header-padding: 4px 6px;
   --report-header-margin: 8px;
@@ -1668,10 +1670,13 @@ body.report-printing .report-daily {
   position: absolute;
   top: 0;
   left: var(--print-fit-left, 0);
-  width: 100%;
+  display: flex !important;
+  flex-direction: column;
+  width: calc(11in - 8mm);
   max-width: none;
-  height: auto;
+  height: calc(8.5in - 8mm);
   min-height: 0;
+  box-sizing: border-box;
   padding: 0 !important;
   margin: 0;
   border: 0;
@@ -1682,6 +1687,11 @@ body.report-printing .report-daily {
   transform-origin: top left;
   page-break-inside: avoid;
   page-break-after: avoid;
+}
+
+body.report-printing .report-sheet.report-measuring,
+body.report-printing .report-sheet.report-scaled {
+  height: auto;
 }
 
 body.report-printing .report-daily.report-tight {
@@ -1754,6 +1764,7 @@ body.report-printing .report-daily .report-doc-header {
   border: 1px solid #000000;
   border-radius: 0;
   box-shadow: none;
+  flex: none;
   page-break-inside: avoid;
 }
 
@@ -1818,6 +1829,10 @@ body.report-printing .report-daily .report-warning {
   line-height: var(--report-line-height);
 }
 
+body.report-printing .report-daily .report-header {
+  flex: none;
+}
+
 body.report-printing .report-daily .table {
   display: table;
   width: 100%;
@@ -1826,6 +1841,7 @@ body.report-printing .report-daily .table {
   border-collapse: collapse;
   table-layout: fixed;
   overflow: visible;
+  flex: none;
   font-size: var(--report-cell-size);
   page-break-inside: avoid;
 }
@@ -1842,7 +1858,6 @@ body.report-printing .report-daily .table-row span {
   display: table-cell;
   padding: var(--report-cell-padding);
   border: 1px solid #000000;
-  overflow: hidden;
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
@@ -1874,9 +1889,11 @@ body.report-printing .report-daily .table-row span:nth-child(8) { width: 15%; }
 body.report-printing .report-daily .table-row span:nth-child(9) { width: 16%; }
 body.report-printing .report-daily .table-row span:nth-child(10) { width: 13%; }
 
-body.report-printing .report-daily .signature {
+body.report-printing .report-daily .report-authorization {
+  flex: none;
   gap: 3px;
-  margin-top: var(--report-signature-margin);
+  margin-top: auto;
+  padding-top: var(--report-signature-margin);
 }
 
 body.report-printing .report-daily .signature-line {
@@ -1886,6 +1903,12 @@ body.report-printing .report-daily .signature-line {
 
 body.report-printing .report-daily .report-label {
   font-size: 4.5pt;
+}
+
+body.report-printing .report-sheet.report-scaled {
+  left: var(--print-fit-zoom-left, 0);
+  transform: none;
+  zoom: var(--print-fit-scale, 1);
 }
 
 @media (max-width: 900px) {

@@ -3,7 +3,7 @@
 {% block title %}REPORTES · INVENTARIO VEHICULAR{% endblock %}
 
 {% block content %}
-<section class="card report report-daily">
+<section class="card report report-daily report-sheet">
   <div class="report-doc-header">
     <div class="report-doc-logo">
       <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo institucional">
@@ -80,7 +80,7 @@
   <p class="empty">Sin movimientos validados para este dia.</p>
   {% endif %}
 
-  <div class="signature">
+  <div class="signature report-authorization">
     <div class="signature-line"></div>
     <span class="report-label">Autorización del Director</span>
   </div>
@@ -104,45 +104,139 @@
     if (!report || !contentInner) return;
 
     const densityClasses = ["report-tight", "report-compact", "report-ultra"];
+    const rows = [...report.querySelectorAll(".table-row:not(.header)")];
     const pxPerMm = 96 / 25.4;
     const pageWidth = 271.4 * pxPerMm;
     const pageHeight = 207.9 * pxPerMm;
 
+    const clearRowHeights = () => {
+      rows.forEach((row) => {
+        row.style.removeProperty("height");
+        if (!row.style.length) row.removeAttribute("style");
+      });
+    };
+
     const clearPrintFit = () => {
       document.body.classList.remove("report-printing");
-      report.classList.remove(...densityClasses);
+      report.classList.remove(...densityClasses, "report-measuring", "report-scaled");
+      clearRowHeights();
       report.style.removeProperty("--print-fit-scale");
       report.style.removeProperty("--print-fit-left");
+      report.style.removeProperty("--print-fit-zoom-left");
       contentInner.style.removeProperty("--print-fit-height");
       if (!report.style.length) report.removeAttribute("style");
       if (!contentInner.style.length) contentInner.removeAttribute("style");
+      report.getAnimations().forEach((animation) => animation.finish());
+    };
+
+    const measureNaturalLayout = () => {
+      report.classList.add("report-measuring");
+      void report.offsetHeight;
+
+      const heightOf = (selector) => report.querySelector(selector)?.getBoundingClientRect().height || 0;
+      const rowHeights = rows.map((row) => row.getBoundingClientRect().height);
+      const heights = {
+        institutionalHeader: heightOf(".report-doc-header"),
+        title: heightOf(".report-header"),
+        tableHeader: heightOf(".table-row.header"),
+        tableBody: rowHeights.reduce((total, height) => total + height, 0),
+        authorization: heightOf(".report-authorization"),
+      };
+      const reportRect = report.getBoundingClientRect();
+      const totalHeight = Math.max(report.scrollHeight, reportRect.height);
+      const componentHeight = Object.values(heights).reduce((total, height) => total + height, 0);
+
+      report.classList.remove("report-measuring");
+      return {
+        reportWidth: Math.max(report.scrollWidth, reportRect.width),
+        totalHeight,
+        heights,
+        rowHeights,
+        spacing: Math.max(0, totalHeight - componentHeight),
+      };
+    };
+
+    const distributeRows = (measurement, printableHeight) => {
+      const fixedHeight = measurement.heights.institutionalHeader
+        + measurement.heights.title
+        + measurement.heights.tableHeader
+        + measurement.heights.authorization
+        + measurement.spacing;
+      const availableTableBodyHeight = printableHeight - fixedHeight;
+      const extraSpace = availableTableBodyHeight - measurement.heights.tableBody;
+      if (extraSpace <= 0 || !rows.length) return;
+
+      const averageNaturalHeight = measurement.heights.tableBody / rows.length;
+      const maxExtraPerRow = Math.min(12 * pxPerMm, Math.max(24, averageNaturalHeight * 1.25));
+      const extraPerRow = Math.min(extraSpace / rows.length, maxExtraPerRow);
+      rows.forEach((row, index) => {
+        row.style.height = `${measurement.rowHeights[index] + extraPerRow}px`;
+      });
+
+      if (report.scrollHeight > Math.ceil(printableHeight)) clearRowHeights();
     };
 
     const fitForPrint = () => {
+      if (document.body.classList.contains("report-printing")) return;
       clearPrintFit();
       document.body.classList.add("report-printing");
       report.style.setProperty("--print-fit-scale", "1");
 
+      const printableRect = report.getBoundingClientRect();
+      const printableWidth = Math.min(pageWidth, printableRect.width || pageWidth);
+      const printableHeight = Math.min(pageHeight, printableRect.height || pageHeight);
+      let selectedDensity = "";
+      let measurement;
+
       for (const densityClass of ["", ...densityClasses]) {
         report.classList.remove(...densityClasses);
         if (densityClass) report.classList.add(densityClass);
-        void report.offsetHeight;
+        selectedDensity = densityClass;
+        measurement = measureNaturalLayout();
 
-        if (report.scrollWidth <= Math.ceil(pageWidth) && report.scrollHeight <= Math.ceil(pageHeight)) {
+        if (measurement.reportWidth <= Math.ceil(printableWidth)
+          && measurement.totalHeight <= Math.ceil(printableHeight)) {
           break;
         }
       }
 
-      const reportRect = report.getBoundingClientRect();
-      const reportWidth = Math.max(report.scrollWidth, reportRect.width);
-      const reportHeight = Math.max(report.scrollHeight, reportRect.height);
-      if (!reportWidth || !reportHeight) return;
+      if (!measurement?.reportWidth || !measurement.totalHeight) return;
 
-      const widthScale = reportWidth <= Math.ceil(pageWidth) ? 1 : pageWidth / reportWidth;
-      const scale = Math.min(1, widthScale, pageHeight / reportHeight);
-      report.style.setProperty("--print-fit-scale", String(scale));
-      report.style.setProperty("--print-fit-left", `${Math.max(0, (pageWidth - reportWidth * scale) / 2)}px`);
-      contentInner.style.setProperty("--print-fit-height", `${reportHeight * scale}px`);
+      const layoutHeight = Math.max(printableHeight, measurement.totalHeight);
+      const widthScale = measurement.reportWidth <= Math.ceil(printableWidth)
+        ? 1
+        : printableWidth / measurement.reportWidth;
+      let scale = Math.min(1, widthScale, printableHeight / layoutHeight);
+      if (scale === 1 && !selectedDensity && rows.length <= 10) {
+        distributeRows(measurement, printableHeight);
+      }
+      if (measurement.totalHeight > Math.ceil(printableHeight)) {
+        report.classList.add("report-scaled");
+      }
+
+      const applyScale = () => {
+        const left = Math.max(0, (printableWidth - measurement.reportWidth * scale) / 2);
+        report.style.setProperty("--print-fit-scale", String(scale));
+        report.style.setProperty("--print-fit-left", `${left}px`);
+        report.style.setProperty("--print-fit-zoom-left", `${left / scale}px`);
+      };
+      applyScale();
+
+      if (report.classList.contains("report-scaled")) {
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const renderedRect = report.getBoundingClientRect();
+          const correction = Math.min(
+            1,
+            printableWidth / renderedRect.width,
+            printableHeight / renderedRect.height,
+          );
+          if (correction >= 1) break;
+          scale *= correction > 0.98 ? 0.97 : correction;
+          applyScale();
+        }
+      }
+
+      contentInner.style.setProperty("--print-fit-height", `${report.getBoundingClientRect().height}px`);
     };
 
     const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
