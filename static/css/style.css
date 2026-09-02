@@ -1665,7 +1665,7 @@ body.report-printing .report-sheet {
   --report-head-size: 5.5pt;
   --report-cell-padding: 3px 4px;
   --report-line-height: 1.1;
-  --report-signature-margin: 14px;
+  --report-signature-gap: 8mm;
   --report-signature-height: 20px;
   position: absolute;
   top: 0;
@@ -1709,7 +1709,6 @@ body.report-printing .report-daily.report-tight {
   --report-head-size: 5pt;
   --report-cell-padding: 2.5px 3.5px;
   --report-line-height: 1.08;
-  --report-signature-margin: 11px;
   --report-signature-height: 16px;
 }
 
@@ -1728,7 +1727,6 @@ body.report-printing .report-daily.report-compact {
   --report-head-size: 4.6pt;
   --report-cell-padding: 2px 3px;
   --report-line-height: 1.05;
-  --report-signature-margin: 8px;
   --report-signature-height: 12px;
 }
 
@@ -1747,7 +1745,6 @@ body.report-printing .report-daily.report-ultra {
   --report-head-size: 4.1pt;
   --report-cell-padding: 1.5px 2.5px;
   --report-line-height: 1.02;
-  --report-signature-margin: 5px;
   --report-signature-height: 8px;
 }
 
@@ -1892,8 +1889,8 @@ body.report-printing .report-daily .table-row span:nth-child(10) { width: 13%; }
 body.report-printing .report-daily .report-authorization {
   flex: none;
   gap: 3px;
-  margin-top: auto;
-  padding-top: var(--report-signature-margin);
+  margin-top: var(--report-signature-gap);
+  padding-top: 0;
 }
 
 body.report-printing .report-daily .signature-line {

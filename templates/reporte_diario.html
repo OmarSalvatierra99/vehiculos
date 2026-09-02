@@ -142,6 +142,9 @@
         tableBody: rowHeights.reduce((total, height) => total + height, 0),
         authorization: heightOf(".report-authorization"),
       };
+      const signatureGap = Number.parseFloat(
+        getComputedStyle(report.querySelector(".report-authorization")).marginTop,
+      ) || 0;
       const reportRect = report.getBoundingClientRect();
       const totalHeight = Math.max(report.scrollHeight, reportRect.height);
       const componentHeight = Object.values(heights).reduce((total, height) => total + height, 0);
@@ -152,22 +155,26 @@
         totalHeight,
         heights,
         rowHeights,
-        spacing: Math.max(0, totalHeight - componentHeight),
+        signatureGap,
+        spacing: Math.max(0, totalHeight - componentHeight - signatureGap),
       };
     };
 
     const distributeRows = (measurement, printableHeight) => {
+      const bottomSafetySpace = 2 * pxPerMm;
       const fixedHeight = measurement.heights.institutionalHeader
         + measurement.heights.title
         + measurement.heights.tableHeader
         + measurement.heights.authorization
+        + measurement.signatureGap
+        + bottomSafetySpace
         + measurement.spacing;
       const availableTableBodyHeight = printableHeight - fixedHeight;
       const extraSpace = availableTableBodyHeight - measurement.heights.tableBody;
       if (extraSpace <= 0 || !rows.length) return;
 
       const averageNaturalHeight = measurement.heights.tableBody / rows.length;
-      const maxExtraPerRow = Math.min(12 * pxPerMm, Math.max(24, averageNaturalHeight * 1.25));
+      const maxExtraPerRow = Math.min(18 * pxPerMm, Math.max(32, averageNaturalHeight * 2));
       const extraPerRow = Math.min(extraSpace / rows.length, maxExtraPerRow);
       rows.forEach((row, index) => {
         row.style.height = `${measurement.rowHeights[index] + extraPerRow}px`;
