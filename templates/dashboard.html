@@ -113,9 +113,14 @@
 
       <fieldset class="form-section">
         <legend>Personal</legend>
-        <label class="full">
-          Responsable del vehiculo
-          <select name="responsable_usuario_id" id="responsable_usuario_id" required>
+        <label class="full" for="responsable_usuario_id">
+          <span id="responsable_label">Responsable del vehiculo</span>
+          <div class="combobox-search" hidden>
+            <input type="text" id="responsable_search" class="combobox-input" style="min-height: 47px;" placeholder="Buscar responsable..." autocomplete="off" spellcheck="false"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="responsable_dropdown" aria-labelledby="responsable_label">
+            <div id="responsable_dropdown" class="combobox-dropdown" role="listbox" aria-labelledby="responsable_label" hidden></div>
+          </div>
+          <select name="responsable_usuario_id" id="responsable_usuario_id" aria-labelledby="responsable_label" required>
             {% if resguardante_disponible %}
             <option
               value="{{ usuario_id }}"
@@ -540,25 +545,34 @@
     const chipsContainer = document.getElementById(chipsId);
     const countEl = document.getElementById(countId);
 
-    if (!searchInput || !dropdown || !selectEl || !chipsContainer || !countEl) {
+    if (!searchInput || !dropdown || !selectEl || (selectEl.multiple && (!chipsContainer || !countEl))) {
       return;
     }
 
-    let allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled);
+    const single = !selectEl.multiple;
+    let allOptions = [];
     const maxSelected = Number.parseInt(selectEl.dataset.max, 10);
     const requiresPassengerLimit = Boolean(passengerLimitInput);
     let focusedIndex = -1;
 
     const refreshOptions = () => {
-      allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled);
+      allOptions = Array.from(selectEl.options).filter(opt => !opt.disabled && !opt.hidden);
+    };
+
+    const syncSelection = () => {
+      searchInput.value = selectEl.selectedOptions[0]?.textContent.trim() || "";
+      searchInput.setCustomValidity(selectEl.validity.valid ? "" : "Seleccione un responsable de la lista.");
+      if (selectEl.validity.valid) searchInput.removeAttribute("aria-invalid");
     };
 
     const updateCount = () => {
+      if (!countEl) return;
       const selected = selectEl.selectedOptions.length;
       countEl.textContent = `${selected} seleccionado${selected !== 1 ? 's' : ''}`;
     };
 
     const updateChips = () => {
+      if (!chipsContainer) return;
       chipsContainer.innerHTML = "";
       const selected = Array.from(selectEl.selectedOptions);
 
@@ -585,35 +599,51 @@
       });
     };
 
+    const normalize = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const filterOptions = (term) => {
-      const normalizedTerm = term.toLowerCase().trim();
+      const normalizedTerm = normalize(term);
       return allOptions.filter(opt => {
         const isSelected = opt.selected;
         const label = (opt.dataset.nombre || opt.textContent).toLowerCase().trim();
         if (excludeLabelFn && excludeLabelFn(label, opt)) {
           return false;
         }
-        const matchesSearch = label.includes(normalizedTerm);
-        return !isSelected && (normalizedTerm === "" || matchesSearch);
+        const matchesSearch = normalize(label).includes(normalizedTerm);
+        return (single || !isSelected) && (normalizedTerm === "" || matchesSearch);
       });
     };
 
     const showDropdown = (options) => {
       dropdown.innerHTML = "";
       focusedIndex = -1;
+      if (single) {
+        searchInput.setAttribute("aria-expanded", "true");
+        searchInput.removeAttribute("aria-activedescendant");
+      }
 
       if (options.length === 0) {
         const noResults = document.createElement("div");
         noResults.className = "combobox-item combobox-no-results";
         noResults.textContent = "No se encontraron resultados";
+        if (single) {
+          noResults.setAttribute("role", "option");
+          noResults.setAttribute("aria-disabled", "true");
+          noResults.setAttribute("aria-live", "polite");
+        }
         dropdown.appendChild(noResults);
         dropdown.hidden = false;
         return;
       }
 
       options.forEach((option, index) => {
-        const item = document.createElement("button");
-        item.type = "button";
+        const item = document.createElement(single ? "div" : "button");
+        if (single) {
+          item.id = `${dropdownId}_option_${index}`;
+          item.setAttribute("role", "option");
+          item.setAttribute("aria-selected", String(option.selected));
+        } else {
+          item.type = "button";
+        }
         item.className = "combobox-item";
         item.textContent = option.textContent;
         item.dataset.value = option.value;
@@ -633,9 +663,21 @@
     const hideDropdown = () => {
       dropdown.hidden = true;
       focusedIndex = -1;
+      if (single) {
+        searchInput.setAttribute("aria-expanded", "false");
+        searchInput.removeAttribute("aria-activedescendant");
+        syncSelection();
+      }
     };
 
     const selectOption = (option) => {
+      if (single) {
+        option.selected = true;
+        selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+        searchInput.focus();
+        hideDropdown();
+        return;
+      }
       let allowed = maxSelected;
       if (requiresPassengerLimit) {
         const allowedByInput = Number.parseInt(passengerLimitInput?.value, 10);
@@ -671,6 +713,7 @@
       if (newIndex >= 0 && newIndex < items.length) {
         focusedIndex = newIndex;
         items[focusedIndex].classList.add("focused");
+        if (single) searchInput.setAttribute("aria-activedescendant", items[focusedIndex].id);
         items[focusedIndex].scrollIntoView({ block: "nearest" });
       }
     };
@@ -681,30 +724,38 @@
     });
 
     searchInput.addEventListener("focus", () => {
-      const filtered = filterOptions(searchInput.value);
+      const filtered = filterOptions(single ? "" : searchInput.value);
       showDropdown(filtered);
+      if (single) searchInput.select();
     });
 
     searchInput.addEventListener("keydown", (e) => {
+      if (e.isComposing) return;
       const items = dropdown.querySelectorAll(".combobox-item:not(.combobox-no-results):not(.combobox-info)");
 
       switch(e.key) {
         case "ArrowDown":
           e.preventDefault();
           if (dropdown.hidden) {
-            const filtered = filterOptions(searchInput.value);
+            const filtered = filterOptions(single ? "" : searchInput.value);
             showDropdown(filtered);
+            if (single) updateFocus(0);
           } else {
             updateFocus(Math.min(focusedIndex + 1, items.length - 1));
           }
           break;
         case "ArrowUp":
           e.preventDefault();
-          updateFocus(Math.max(focusedIndex - 1, 0));
+          if (single && dropdown.hidden) {
+            showDropdown(filterOptions(""));
+            updateFocus(dropdown.querySelectorAll("[data-value]").length - 1);
+          } else {
+            updateFocus(Math.max(focusedIndex - 1, 0));
+          }
           break;
         case "Enter":
           e.preventDefault();
-          if (focusedIndex >= 0 && focusedIndex < items.length) {
+          if (!dropdown.hidden && focusedIndex >= 0 && focusedIndex < items.length) {
             const value = items[focusedIndex].dataset.value;
             const option = allOptions.find(opt => opt.value === value);
             if (option) selectOption(option);
@@ -727,6 +778,32 @@
     updateCount();
     refreshOptions();
 
+    if (single) {
+      searchInput.required = selectEl.required;
+      searchInput.disabled = selectEl.disabled;
+      searchInput.addEventListener("click", () => {
+        if (dropdown.hidden) {
+          showDropdown(filterOptions(""));
+          searchInput.select();
+        }
+      });
+      // Keep focus on the input so clicking an option does not cancel the search.
+      dropdown.addEventListener("mousedown", (event) => event.preventDefault());
+      searchInput.addEventListener("blur", hideDropdown);
+      selectEl.addEventListener("change", hideDropdown);
+      selectEl.addEventListener("invalid", (event) => {
+        event.preventDefault();
+        syncSelection();
+        searchInput.focus();
+      });
+      searchInput.addEventListener("invalid", () => searchInput.setAttribute("aria-invalid", "true"));
+      selectEl.form?.addEventListener("reset", () => setTimeout(hideDropdown, 0));
+      syncSelection();
+      Array.from(selectEl.labels).forEach(label => { label.htmlFor = searchInputId; });
+      selectEl.hidden = true;
+      searchInput.parentElement.hidden = false;
+    }
+
     if (excludeLabelFn) {
       const syncExclusions = () => {
         Array.from(selectEl.selectedOptions).forEach((opt) => {
@@ -747,6 +824,7 @@
     return { updateChips, updateCount, selectEl, refreshOptions };
   }
 
+  setupCombobox("responsable_search", "responsable_dropdown", "responsable_usuario_id");
   const pasajerosCombobox = setupCombobox(
     "pasajeros_search",
     "pasajeros_dropdown",
