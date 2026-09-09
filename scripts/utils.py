@@ -1348,7 +1348,6 @@ class DatabaseManager:
                 "C.P. Vanesa Angulo Ramírez",
                 "C.P. Antonio Mastranzo Sánchez",
                 "C.P. Gonzalo Flores Pérez",
-                "C.P. Rubén Jesús Méndez Arámbula",
             ]),
             ("C.P. Cristina Rosas de la Cruz", [
                 "Lic. Liliana Bonilla Montiel",
@@ -1467,7 +1466,7 @@ class DatabaseManager:
             cur.execute("DELETE FROM movimientos_auditores WHERE auditor_id=?", (candidato_id,))
             cur.execute("UPDATE auditores SET activo=0 WHERE id=?", (candidato_id,))
 
-        responsables_objetivo = ["C.P. Miguel Ángel Roldán Peña"]
+        responsables_objetivo = []
         cur.execute("""
             SELECT nombre
             FROM usuarios
