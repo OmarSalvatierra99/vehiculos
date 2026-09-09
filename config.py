@@ -18,7 +18,7 @@ class Config:
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
 
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    LOG_FILE: str = os.getenv("LOG_FILE", "log/app.log")
+    LOG_FILE: str = os.getenv("LOG_FILE", "logs/app.log")
 
     INVENTARIOS_DB: str = os.getenv("INVENTARIOS_DB", "inventarios.db")
     CATALOGOS_DIR: str = os.getenv(

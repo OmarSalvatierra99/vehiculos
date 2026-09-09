@@ -70,7 +70,7 @@ def _setup_logging(app: Flask) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    log_file = app.config.get("LOG_FILE", "log/app.log")
+    log_file = app.config.get("LOG_FILE", "logs/app.log")
     log_dir = Path(log_file).parent
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -484,8 +484,6 @@ def _build_dashboard_context(
         if all(item.get("id") != auditor_resguardante_id for item in responsables):
             responsables.append(auditor_resguardante)
 
-    if not auditores:
-        auditores = auditores_ofs
     entes = db_manager.listar_entes()
     vehiculos_prestables = db_manager.listar_vehiculos_prestables(usuario_id, fecha_txt)
     movimientos = _filtrar_movimientos_hoy(

@@ -962,7 +962,7 @@ textarea {
   background: #fff5f5;
 }
 
-.btn.ghost {
+.btn.ghost:not(.primary) {
   border-color: var(--line);
   color: var(--accent-dark);
 }

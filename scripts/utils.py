@@ -1110,10 +1110,7 @@ class DatabaseManager:
         return auditor_id
 
     def listar_personal_resguardante(self, usuario_id: int) -> List[Dict]:
-        auditores = self.listar_auditores_por_usuario(usuario_id)
-        if not auditores:
-            auditores = self.listar_auditores()
-        return auditores
+        return self.listar_auditores_por_usuario(usuario_id)
 
     def listar_resguardantes(self) -> List[Dict]:
         conn = self._connect()
