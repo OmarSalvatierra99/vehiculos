@@ -33,15 +33,17 @@
 </section>
 
 {% if rol == "monitor" %}
-<section class="monitor-menu" aria-label="Menu de monitor">
-  <button class="monitor-tab is-active" type="button" data-monitor-tab="movimientos" aria-controls="monitor-panel-movimientos">Movimientos y reportes</button>
-  <button class="monitor-tab" type="button" data-monitor-tab="emergencia" aria-controls="monitor-panel-emergencia">Alta de emergencia</button>
-  <button class="monitor-tab" type="button" data-monitor-tab="reasignacion" aria-controls="monitor-panel-reasignacion">Reasignacion</button>
-  <button class="monitor-tab" type="button" data-monitor-tab="unidades" aria-controls="monitor-panel-unidades">Unidades registradas</button>
+{% set active_panel = monitor_active_panel|default("movimientos") %}
+<section class="monitor-menu" aria-label="Menú administrativo">
+  <button class="monitor-tab{% if active_panel == 'movimientos' %} is-active{% endif %}" type="button" data-monitor-tab="movimientos" aria-controls="monitor-panel-movimientos">Movimientos y reportes</button>
+  <button class="monitor-tab{% if active_panel == 'emergencia' %} is-active{% endif %}" type="button" data-monitor-tab="emergencia" aria-controls="monitor-panel-emergencia">Alta de emergencia</button>
+  <button class="monitor-tab{% if active_panel == 'reasignacion' %} is-active{% endif %}" type="button" data-monitor-tab="reasignacion" aria-controls="monitor-panel-reasignacion">Reasignacion</button>
+  <button class="monitor-tab{% if active_panel == 'unidades' %} is-active{% endif %}" type="button" data-monitor-tab="unidades" aria-controls="monitor-panel-unidades">Unidades registradas</button>
+  <button class="monitor-tab{% if active_panel == 'recordatorios' %} is-active{% endif %}" type="button" data-monitor-tab="recordatorios" aria-controls="monitor-panel-recordatorios">Recordatorios</button>
 </section>
 {% endif %}
 
-<section class="card {% if rol == 'monitor' %}monitor-panel is-active{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-movimientos" data-monitor-panel="movimientos"{% endif %}>
+<section class="card {% if rol == 'monitor' %}monitor-panel{% if active_panel == 'movimientos' %} is-active{% endif %}{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-movimientos" data-monitor-panel="movimientos" {% if active_panel != 'movimientos' %}hidden{% endif %}{% endif %}>
   <div class="card-header">
     <div>
       <h2>Movimientos y reportes</h2>
@@ -151,6 +153,15 @@
         {% endif %}
       </span>
       <span class="actions-inline">
+        {% if mov.data.fecha_entrega %}
+          <a class="btn ghost btn-small" href="{{ url_for('reporte_prestamo', prestamo_id=mov.data.id) if mov.data.tipo == 'prestamo' else url_for('reporte_movimiento', mov_id=mov.data.id) }}">Reporte</a>
+          {% if mov.data.tipo != 'prestamo' and not mov.data.devuelto %}
+          <form method="post" action="{{ url_for('movimientos_devolver', mov_id=mov.data.id) }}">
+            <input type="hidden" name="fecha" value="{{ fecha_consulta or '' }}">
+            <button class="btn ghost btn-small" type="submit">Devolver</button>
+          </form>
+          {% endif %}
+        {% endif %}
         {% if rol == "monitor" %}
           {% if not mov.data.rechazado %}
             <a
@@ -233,7 +244,7 @@
 </section>
 
 {% if rol == "monitor" %}
-<section class="card monitor-panel" id="monitor-panel-emergencia" data-monitor-panel="emergencia" hidden>
+<section class="card monitor-panel{% if active_panel == 'emergencia' %} is-active{% endif %}" id="monitor-panel-emergencia" data-monitor-panel="emergencia" {% if active_panel != 'emergencia' %}hidden{% endif %}>
   <div class="card-header">
     <div>
       <h2>Alta de emergencia</h2>
@@ -394,7 +405,7 @@
 {% endif %}
 
 {% if rol in ["monitor", "admin"] %}
-<section class="card {% if rol == 'monitor' %}monitor-panel{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-reasignacion" data-monitor-panel="reasignacion" hidden{% endif %}>
+<section class="card {% if rol == 'monitor' %}monitor-panel{% if active_panel == 'reasignacion' %} is-active{% endif %}{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-reasignacion" data-monitor-panel="reasignacion" {% if active_panel != 'reasignacion' %}hidden{% endif %}{% endif %}>
   <div class="card-header">
     <div>
       <h2>Reasignacion de vehiculos</h2>
@@ -464,7 +475,23 @@
 </section>
 {% endif %}
 
-<section class="grid {% if rol == 'monitor' %}monitor-panel{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-unidades" data-monitor-panel="unidades" hidden{% endif %}>
+<section class="grid {% if rol == 'monitor' %}monitor-panel{% if active_panel == 'unidades' %} is-active{% endif %}{% endif %}" {% if rol == 'monitor' %}id="monitor-panel-unidades" data-monitor-panel="unidades" {% if active_panel != 'unidades' %}hidden{% endif %}{% endif %}>
+  <div class="card">
+    <h2>Alta de vehículos</h2>
+    <form method="post" action="{{ url_for('inventario_nuevo') }}" class="form">
+      <label>Placa <input type="text" name="placa" required></label>
+      <label>Marca <input type="text" name="marca" required></label>
+      <label>Modelo <input type="text" name="modelo" required></label>
+      <label>Categoría
+        <select name="categoria" required>
+          {% for categoria in categorias_vehiculo %}
+          <option value="{{ categoria }}">{{ categoria }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="actions"><button class="btn primary" type="submit">Registrar vehículo</button></div>
+    </form>
+  </div>
   <div class="card">
     <h2>Unidades registradas</h2>
     <p class="subtitle">Relacion oficial de placas activas.</p>
@@ -508,6 +535,19 @@
     {% endif %}
   </div>
 </section>
+{% if rol == "monitor" %}
+<section class="card monitor-panel{% if active_panel == 'recordatorios' %} is-active{% endif %}" id="monitor-panel-recordatorios" data-monitor-panel="recordatorios" {% if active_panel != 'recordatorios' %}hidden{% endif %}>
+  <div class="card-header">
+    <div>
+      <h2>Recordatorios por WhatsApp</h2>
+      <p class="subtitle">Guarde teléfonos y prepare mensajes sin salir del panel administrativo.</p>
+    </div>
+  </div>
+  {% with usuarios=recordatorios.usuarios, error=recordatorios.error, usuario_editado=recordatorios.usuario_editado, telefono_ingresado=recordatorios.telefono_ingresado, mensaje_recordatorio=recordatorios.mensaje_recordatorio, fecha_recordatorio=recordatorios.fecha_recordatorio, credenciales=recordatorios.credenciales, recordatorios_en_admin=True %}
+    {% include "_recordatorios_panel.html" %}
+  {% endwith %}
+</section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -893,9 +933,12 @@
       monitorTabs.forEach((tab) => {
         tab.addEventListener("click", () => setActivePanel(tab.dataset.monitorTab));
       });
-      setActivePanel("movimientos");
+      setActivePanel("{{ monitor_active_panel|default('movimientos') }}");
     }
   })();
 </script>
+{% endif %}
+{% if rol == "monitor" %}
+{% include "_recordatorios_script.html" %}
 {% endif %}
 {% endblock %}

@@ -29,17 +29,15 @@
           <div class="user-chip">
             <span class="user-name">{{ session.get('nombre') }}</span>
             <span class="user-role">
-              {% if session.get('rol') == 'admin' %}
-                ADMINISTRADOR
-              {% elif session.get('rol') == 'monitor' %}
-                MONITOR
+              {% if session.get('rol') == 'monitor' %}
+                Administrador
               {% else %}
                 USUARIO
               {% endif %}
             </span>
           </div>
           <nav class="nav-links">
-            {% if session.get('rol') in ['admin', 'monitor'] %}
+            {% if session.get('rol') == 'monitor' %}
             <a href="{{ url_for('admin') }}">Administracion</a>
             {% else %}
             <a href="{{ url_for('dashboard') }}">Solicitud</a>

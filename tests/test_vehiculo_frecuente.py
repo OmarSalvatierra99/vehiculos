@@ -150,7 +150,7 @@ class VehiculoFrecuenteTest(unittest.TestCase):
                 with client.session_transaction() as session:
                     session["rol"] = "admin"
                 response = client.get(f"/admin?fecha={fecha}")
-                self.assertNotIn(b"Agregar y validar movimiento de Mike", response.data)
+                self.assertIn(b"Agregar y validar movimiento de Mike", response.data)
                 total_antes = conn.execute(
                     "SELECT COUNT(*) FROM movimientos WHERE usuario_id=?",
                     (mike["id"],),
@@ -165,7 +165,7 @@ class VehiculoFrecuenteTest(unittest.TestCase):
                         "SELECT COUNT(*) FROM movimientos WHERE usuario_id=?",
                         (mike["id"],),
                     ).fetchone()[0],
-                    total_antes,
+                    total_antes + 1,
                 )
                 conn.close()
 

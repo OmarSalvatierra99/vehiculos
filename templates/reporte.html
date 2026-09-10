@@ -28,7 +28,7 @@
     <p class="report-warning">ESTRICTAMENTE PROHIBIDO QUE EN VEHICULO OFICIAL VIAJEN MAS DE 5 OCUPANTES</p>
   </div>
   {% if movimiento.es_emergencia %}
-  <div class="report-note">Movimiento de emergencia registrado y validado por monitor vehicular.</div>
+  <div class="report-note">Movimiento de emergencia registrado y validado por un administrador.</div>
   {% endif %}
   <div class="report-grid">
     {% set no_pasajeros = (movimiento.no_pasajeros or 0) | int %}

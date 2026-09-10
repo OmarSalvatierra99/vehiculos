@@ -1,0 +1,27 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: Organo de Fiscalizacion Superior del Estado de Tlaxcala
+    - generic [ref=e5]: Departamento de Entes Estatales
+  - banner [ref=e6]:
+    - generic [ref=e7]:
+      - img "Organo de Fiscalizacion Superior del Estado de Tlaxcala" [ref=e8]
+      - generic [ref=e9]:
+        - generic [ref=e10]: Organo de Fiscalizacion Superior del Estado de Tlaxcala
+        - heading "Sistema de Inventario Vehicular" [level=1] [ref=e11]
+        - paragraph [ref=e12]: Departamento de Entes Estatales
+  - main [ref=e13]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - heading "Acceso institucional" [level=2] [ref=e17]
+        - paragraph [ref=e18]: Ingrese con sus credenciales autorizadas para gestionar el inventario vehicular.
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - text: Usuario
+          - textbox "Usuario" [ref=e22]
+        - generic [ref=e23]:
+          - text: Clave
+          - textbox "Clave" [ref=e24]
+        - button "Ingresar" [ref=e25] [cursor=pointer]
+  - contentinfo [ref=e26]:
+    - generic [ref=e27]: Organo de Fiscalizacion Superior del Estado de Tlaxcala
+    - generic [ref=e28]: Inventario vehicular institucional · Uso interno

@@ -4,16 +4,21 @@ Vehiculos - Aplicacion Flask
 Control de vehiculos para auditoria institucional.
 """
 
+import csv
 import logging
+import secrets
 import sys
 from collections import Counter
 from datetime import date, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from flask import (
     Flask,
+    abort,
     flash,
     get_flashed_messages,
     jsonify,
@@ -31,6 +36,7 @@ from scripts.utils import (
     CATEGORIAS_VEHICULO,
     DatabaseManager,
     MOTIVOS_SALIDA_VALIDOS,
+    normalizar_rol as _normalizar_rol,
 )
 from sso import clear_sso_cookie, read_sso_username, set_sso_cookie
 
@@ -38,6 +44,7 @@ from sso import clear_sso_cookie, read_sso_username, set_sso_cookie
 USUARIOS_SOLICITUD_OBRA = {"mike", "ramos"}
 USUARIOS_SOLICITUD_COMPLETA = {"luis"}
 MOVIMIENTOS_RAPIDOS = {"mike": "Mike", "luis": "Luis Felipe"}
+USUARIOS_CONTRASENAS = Path(__file__).with_name("usuarios_contrasenas.csv")
 
 
 def create_app(config_name: str = None) -> Flask:
@@ -154,17 +161,6 @@ def _filtrar_entes(entes: List[dict], permitidos: List[str]) -> List[dict]:
 
 def _filtrar_vehiculos(items: List[dict]) -> List[dict]:
     return [item for item in items if item.get("categoria") == "VEHICULO"]
-
-
-def _normalizar_rol(rol: str) -> str:
-    rol_txt = (rol or "").strip().lower()
-    if rol_txt == "monitor":
-        return "monitor"
-    if rol_txt in {"gestor", "admin", "administrador"}:
-        return "admin"
-    if rol_txt in {"usuario", "user"}:
-        return "user"
-    return "user"
 
 
 def _parse_responsable_ref(raw: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
@@ -566,7 +562,7 @@ def _build_admin_context(
         entes = []
     usuarios_resguardo = (
         db_manager.listar_usuarios_resguardo()
-        if rol in {"admin", "monitor"} else []
+        if rol == "monitor" else []
     )
     usuarios_resguardo_por_categoria = {categoria: [] for categoria in CATEGORIAS_VEHICULO}
     for usuario_item in usuarios_resguardo:
@@ -606,7 +602,65 @@ def _build_admin_context(
         "motivos_salida": MOTIVOS_SALIDA_VALIDOS,
         "emergencia_habilitada": rol == "monitor" and fecha_filtro == fecha_hoy,
         "emergencia_form": emergencia_form or _empty_emergencia_form(),
+        "recordatorios": _build_recordatorios_context(db_manager) if rol == "monitor" else {},
     }
+
+
+def _build_recordatorios_context(
+    db_manager: DatabaseManager,
+    error=None,
+    usuario_editado=None,
+    telefono_ingresado="",
+    credenciales=None,
+) -> dict:
+    manana = datetime.now(ZoneInfo("America/Mexico_City")).date() + timedelta(days=1)
+    fecha, _ = _limites_semana_laboral(manana, total=1)
+    fecha_recordatorio = _fecha_larga_es(fecha.isoformat()).lower()
+    mensaje_recordatorio = (
+        "Buenas tardes, {nombre}.\n\n"
+        f"Se le recuerda solicitar un vehículo para el día {fecha_recordatorio} en la plataforma:\n"
+        "https://vehiculos.omar-xyz.shop\n\n"
+        "Gracias por su atención."
+    )
+    mensaje_editable = (
+        "Buenas tardes, {nombre completo}.\n\n"
+        "Se le recuerda solicitar un vehículo para el día {fecha} en la plataforma:\n"
+        "https://vehiculos.omar-xyz.shop\n\n"
+        "Gracias por su atención."
+    )
+    usuarios = db_manager.listar_usuarios_recordatorios()
+    for usuario in usuarios:
+        telefono = usuario["telefono_whatsapp"]
+        if telefono:
+            usuario["chat_url"] = "https://wa.me/521" + telefono[3:]
+            mensaje = mensaje_recordatorio.format(nombre=usuario["nombre"])
+            usuario["recordatorio_url"] = usuario["chat_url"] + "?" + urlencode({"text": mensaje})
+            mensaje_credenciales = (
+                f"Usuario: {usuario['usuario']}\n"
+                f"Contraseña: {_clave_control_interno(usuario['usuario'])}"
+            )
+            usuario["credenciales_url"] = usuario["chat_url"] + "?" + urlencode({"text": mensaje_credenciales})
+    if "csrf_recordatorios" not in session:
+        session["csrf_recordatorios"] = secrets.token_urlsafe(32)
+    return {
+        "usuarios": usuarios,
+        "error": error,
+        "usuario_editado": usuario_editado,
+        "telefono_ingresado": telefono_ingresado,
+        "mensaje_recordatorio": mensaje_editable,
+        "fecha_recordatorio": fecha_recordatorio,
+        "credenciales": credenciales,
+    }
+
+
+def _clave_control_interno(usuario: str) -> str:
+    if not USUARIOS_CONTRASENAS.exists():
+        return ""
+    with USUARIOS_CONTRASENAS.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if (row.get("usuario") or "").strip().casefold() == (usuario or "").strip().casefold():
+                return (row.get("contrasena") or "").strip()
+    return ""
 
 
 def _listar_movimientos_admin_filtrados(
@@ -652,7 +706,7 @@ def _build_monitor_context(app: Flask, db_manager: DatabaseManager) -> dict:
 
 def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     def _destino_por_rol(rol: str) -> str:
-        if rol in {"admin", "monitor"}:
+        if rol == "monitor":
             return "admin"
         return "dashboard"
 
@@ -679,6 +733,8 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.before_request
     def verificar_autenticacion():
+        if session.get("autenticado"):
+            session["rol"] = _normalizar_rol(session.get("rol"))
         libres = {"login", "login_alias", "static", "health_check"}
         if request.endpoint not in libres and not session.get("autenticado"):
             _hidratar_sesion_desde_sso()
@@ -715,7 +771,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/dashboard")
     def dashboard():
-        if session.get("rol") in {"admin", "monitor"}:
+        if session.get("rol") == "monitor":
             return redirect(url_for("admin"))
 
         fecha = request.args.get("fecha")
@@ -736,13 +792,18 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/admin")
     def admin():
-        if session.get("rol") not in {"admin", "monitor"}:
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
         context = _build_admin_context(
             app,
             db_manager,
             session.get("rol"),
             request.args.get("fecha"),
+        )
+        context["monitor_active_panel"] = (
+            request.args.get("tab")
+            if request.args.get("tab") in {"movimientos", "emergencia", "reasignacion", "unidades", "recordatorios"}
+            else "movimientos"
         )
         for categoria, texto in get_flashed_messages(with_categories=True):
             if categoria == "error":
@@ -759,6 +820,111 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     @app.route("/monitoreo")
     def monitoreo():
         return redirect(url_for("admin"))
+
+    def _render_recordatorios(error=None, usuario_editado=None, telefono_ingresado="", credenciales=None):
+        response = app.make_response(render_template(
+            "recordatorios.html",
+            **_build_recordatorios_context(
+                db_manager,
+                error,
+                usuario_editado,
+                telefono_ingresado,
+                credenciales,
+            ),
+        ))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    def _render_recordatorios_admin(error=None, usuario_editado=None, telefono_ingresado="", credenciales=None, status=200):
+        context = _build_admin_context(app, db_manager, session.get("rol"), request.form.get("fecha"))
+        context["recordatorios"] = _build_recordatorios_context(
+            db_manager,
+            error,
+            usuario_editado,
+            telefono_ingresado,
+            credenciales,
+        )
+        response = app.make_response(render_template(
+            "admin.html",
+            usuario=session.get("nombre"),
+            rol=session.get("rol"),
+            monitor_active_panel="recordatorios",
+            **context,
+        ))
+        response.headers["Cache-Control"] = "no-store"
+        return response, status
+
+    def _render_recordatorios_or_admin(*args, status=200, **kwargs):
+        if request.form.get("origen") == "admin":
+            return _render_recordatorios_admin(*args, status=status, **kwargs)
+        response = _render_recordatorios(*args, **kwargs)
+        return (response, status) if status != 200 else response
+
+    @app.get("/configuracion/recordatorios")
+    def recordatorios():
+        if session.get("rol") != "monitor":
+            abort(403)
+        return _render_recordatorios()
+
+    def _verificar_csrf_recordatorios():
+        if session.get("rol") != "monitor":
+            abort(403)
+        token = session.get("csrf_recordatorios", "")
+        recibido = request.form.get("csrf_token", "")
+        if not token or not secrets.compare_digest(token.encode(), recibido.encode()):
+            abort(400, description="La sesión del formulario venció. Recargue Recordatorios e intente de nuevo.")
+
+    @app.post("/configuracion/recordatorios/<int:usuario_id>")
+    def recordatorios_guardar(usuario_id: int):
+        _verificar_csrf_recordatorios()
+        telefono = request.form.get("telefono_whatsapp", "")
+        try:
+            actualizado = db_manager.guardar_telefono_whatsapp(usuario_id, telefono)
+        except ValueError as error:
+            return _render_recordatorios_or_admin(str(error), usuario_id, telefono, status=400)
+        if not actualizado:
+            abort(404)
+        flash("Teléfono guardado." if telefono.strip() else "Teléfono eliminado.", "mensaje")
+        if request.form.get("origen") == "admin":
+            return redirect(url_for("admin", tab="recordatorios"))
+        return redirect(url_for("recordatorios"))
+
+    @app.post("/configuracion/credenciales")
+    def credenciales_emergencia():
+        _verificar_csrf_recordatorios()
+        if request.form.get("confirmar_restablecimiento") != "1":
+            return _render_recordatorios_or_admin(
+                credenciales={"error": "Confirme el cambio de contraseña antes de continuar."},
+                status=400,
+            )
+        usuario_id = request.form.get("usuario_id", "")
+        destinatario = next((
+            usuario for usuario in db_manager.listar_usuarios_recordatorios()
+            if str(usuario["id"]) == usuario_id
+        ), None)
+        if not destinatario:
+            abort(404)
+        telefono = destinatario["telefono_whatsapp"]
+        if not telefono:
+            return _render_recordatorios_or_admin(
+                credenciales={"error": "Guarde el teléfono del destinatario antes de generar credenciales."},
+                status=400,
+            )
+        clave = _clave_control_interno(destinatario["usuario"])
+        mensaje = (
+            f"Usuario: {destinatario['usuario']}\n"
+            f"Contraseña: {clave}"
+        )
+        app.logger.info(
+            "Credenciales preparadas: administrador=%s destinatario=%s",
+            session.get("usuario_id"), destinatario["id"],
+        )
+        return _render_recordatorios_or_admin(credenciales={
+            "nombre": destinatario["nombre"],
+            "telefono": telefono,
+            "mensaje": mensaje,
+            "url": "https://wa.me/521" + telefono[3:] + "?" + urlencode({"text": mensaje}),
+        })
 
     def _redirect_admin_con_fecha(fecha_txt: Optional[str] = None):
         fecha_raw = (fecha_txt or "").strip()
@@ -1000,7 +1166,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/vehiculos/reasignar", methods=["POST"])
     def vehiculos_reasignar():
-        if session.get("rol") not in {"admin", "monitor"}:
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
 
         fecha = request.form.get("fecha", "").strip()
@@ -1319,7 +1485,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/inventario/nuevo", methods=["POST"])
     def inventario_nuevo():
-        if session.get("rol") != "admin":
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
 
         placa = request.form.get("placa")
@@ -1351,7 +1517,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/movimientos/<int:mov_id>/entregar", methods=["POST"])
     def movimientos_entregar(mov_id: int):
-        if session.get("rol") not in {"admin", "monitor"}:
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
         fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_entregado(mov_id, session.get("usuario_id"))
@@ -1367,7 +1533,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/movimientos/<int:mov_id>/rechazar", methods=["POST"])
     def movimientos_rechazar(mov_id: int):
-        if session.get("rol") not in {"admin", "monitor"}:
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
         fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_rechazado(mov_id, session.get("usuario_id"))
@@ -1383,7 +1549,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/prestamos/<int:prestamo_id>/validar", methods=["POST"])
     def prestamos_validar(prestamo_id: int):
-        if session.get("rol") not in {"admin", "monitor"}:
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
         fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_prestamo_validado(prestamo_id, session.get("usuario_id"))
@@ -1399,7 +1565,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/prestamos/<int:prestamo_id>/rechazar", methods=["POST"])
     def prestamos_rechazar(prestamo_id: int):
-        if session.get("rol") not in {"admin", "monitor"}:
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
         fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_prestamo_rechazado(prestamo_id, session.get("usuario_id"))
@@ -1415,7 +1581,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
 
     @app.route("/movimientos/<int:mov_id>/devolver", methods=["POST"])
     def movimientos_devolver(mov_id: int):
-        if session.get("rol") != "admin":
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
         fecha = request.form.get("fecha", "").strip()
         ok, mensaje = db_manager.marcar_devuelto(mov_id, session.get("usuario_id"))
@@ -1443,7 +1609,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         movimiento = db_manager.obtener_movimiento(mov_id)
         if not movimiento:
             return redirect(url_for("dashboard"))
-        can_print = session.get("rol") == "admin"
+        can_print = session.get("rol") == "monitor"
         fecha_larga = _fecha_larga_es(movimiento.get("fecha_solicitud"))
         return render_template(
             "reporte.html",
@@ -1459,7 +1625,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
         movimiento = db_manager.obtener_prestamo(prestamo_id)
         if not movimiento:
             return redirect(url_for("dashboard"))
-        can_print = session.get("rol") == "admin"
+        can_print = session.get("rol") == "monitor"
         fecha_larga = _fecha_larga_es(movimiento.get("fecha_solicitud"))
         return render_template(
             "reporte.html",
@@ -1472,7 +1638,7 @@ def _register_routes(app: Flask, db_manager: DatabaseManager) -> None:
     def reporte_diario():
         if not session.get("autenticado"):
             return redirect(url_for("login"))
-        if session.get("rol") not in {"monitor", "admin"}:
+        if session.get("rol") != "monitor":
             return redirect(url_for("dashboard"))
         fecha = _normalizar_fecha_solicitud(request.args.get("fecha"))
         movimientos = db_manager.listar_movimientos_entregados(
@@ -1499,10 +1665,10 @@ def _fecha_larga_es(fecha_iso: str) -> str:
     dias = [
         "Lunes",
         "Martes",
-        "Miercoles",
+        "Miércoles",
         "Jueves",
         "Viernes",
-        "Sabado",
+        "Sábado",
         "Domingo",
     ]
     meses = [

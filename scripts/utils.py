@@ -57,6 +57,24 @@ AUDITOR_RUBEN_MENDEZ_CANONICO = "C.P. Rubén Jesús Méndez Arámbula"
 AUDITOR_RUBEN_MENDEZ_CLAVE = "RUBEN_JESUS_MENDEZ_ARAMBULA"
 
 
+def normalizar_rol(rol: str) -> str:
+    """Unifica los perfiles administrativos sin cambiar los usuarios normales."""
+    if (rol or "").strip().lower() in {"admin", "administrador", "gestor", "monitor"}:
+        return "monitor"
+    return "user"
+
+
+def normalizar_telefono_whatsapp(telefono: str) -> Optional[str]:
+    """Acepta diez digitos mexicanos, con prefijo internacional opcional."""
+    if not telefono.strip():
+        return None
+    compacto = re.sub(r"[\s-]", "", telefono)
+    numero = re.fullmatch(r"(?:\+?52(?:1)?|0052(?:1)?)?([0-9]{10})", compacto)
+    if not numero:
+        raise ValueError("Capture diez dígitos de México; puede incluir espacios, guiones o el prefijo +52.")
+    return "+52" + numero.group(1)
+
+
 def _normalizar_header(valor: str) -> str:
     if not valor:
         return ""
@@ -672,6 +690,8 @@ class DatabaseManager:
         existentes = {row["name"] for row in cur.fetchall()}
         if "puesto" not in existentes:
             cur.execute("ALTER TABLE usuarios ADD COLUMN puesto TEXT DEFAULT ''")
+        if "telefono_whatsapp" not in existentes:
+            cur.execute("ALTER TABLE usuarios ADD COLUMN telefono_whatsapp TEXT")
         conn.commit()
         conn.close()
 
@@ -838,13 +858,7 @@ class DatabaseManager:
                     continue
 
                 clave_txt = str(clave).strip() if clave else f"{usuario}2025"
-                rol_txt = str(rol).strip().lower() if rol else "usuario"
-                if "gestor" in rol_txt or "admin" in rol_txt or "monitor" in rol_txt:
-                    rol_txt = "admin"
-                elif "usuario" in rol_txt or "user" in rol_txt:
-                    rol_txt = "user"
-                elif rol_txt not in {"admin", "user"}:
-                    rol_txt = "user"
+                rol_txt = normalizar_rol(str(rol) if rol else "usuario")
 
                 entes_txt = str(entes).strip().upper() if entes else "TODOS"
                 usuarios.append((
@@ -929,6 +943,48 @@ class DatabaseManager:
             "rol": row["rol"],
             "entes": entes or ["TODOS"],
         }
+
+    def listar_usuarios_recordatorios(self) -> List[Dict]:
+        conn = self._connect()
+        try:
+            return [dict(row) for row in conn.execute("""
+                SELECT id, nombre, usuario, telefono_whatsapp
+                FROM usuarios
+                WHERE activo=1
+                  AND LOWER(TRIM(COALESCE(rol, ''))) NOT IN ('admin', 'administrador', 'gestor', 'monitor')
+                ORDER BY nombre
+            """)]
+        finally:
+            conn.close()
+
+    def guardar_telefono_whatsapp(self, usuario_id: int, telefono: str) -> bool:
+        telefono = normalizar_telefono_whatsapp(telefono)
+        conn = self._connect()
+        try:
+            with conn:
+                cur = conn.execute("""
+                    UPDATE usuarios SET telefono_whatsapp=?
+                    WHERE id=? AND activo=1
+                      AND LOWER(TRIM(COALESCE(rol, ''))) NOT IN ('admin', 'administrador', 'gestor', 'monitor')
+                """, (telefono, usuario_id))
+            return cur.rowcount == 1
+        finally:
+            conn.close()
+
+    def restablecer_clave_emergencia(self, usuario_id: int, telefono: str, clave: str) -> bool:
+        """Cambia la clave solo si el destinatario y su telefono siguen vigentes."""
+        conn = self._connect()
+        try:
+            with conn:
+                cur = conn.execute("""
+                    UPDATE usuarios SET clave=?
+                    WHERE id=? AND activo=1 AND telefono_whatsapp=?
+                      AND telefono_whatsapp IS NOT NULL
+                      AND LOWER(TRIM(COALESCE(rol, ''))) NOT IN ('admin', 'administrador', 'gestor', 'monitor')
+                """, (_hash_password(clave), usuario_id, telefono))
+            return cur.rowcount == 1
+        finally:
+            conn.close()
 
     # -------------------------------------------------------
     # Catálogos
@@ -2315,7 +2371,7 @@ class DatabaseManager:
             SELECT id, nombre, usuario
             FROM usuarios
             WHERE activo=1
-              AND LOWER(COALESCE(rol, '')) != 'monitor'
+              AND LOWER(TRIM(COALESCE(rol, ''))) NOT IN ('admin', 'administrador', 'gestor', 'monitor')
             ORDER BY nombre
         """)
         data = []
@@ -2383,7 +2439,7 @@ class DatabaseManager:
             SELECT id, usuario
             FROM usuarios
             WHERE id=? AND activo=1
-              AND LOWER(COALESCE(rol, '')) != 'monitor'
+              AND LOWER(TRIM(COALESCE(rol, ''))) NOT IN ('admin', 'administrador', 'gestor', 'monitor')
         """, (usuario_destino_id,))
         usuario_destino = cur.fetchone()
         if not usuario_destino:

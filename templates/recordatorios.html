@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Recordatorios · Inventario vehicular{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Recordatorios por WhatsApp</h2>
+    <p>Guarde el teléfono y abra el recordatorio. Debe pulsar Enviar en WhatsApp; no hay envíos automáticos a las 17:00.</p>
+  </div>
+</section>
+<section class="card">
+  {% include "_recordatorios_panel.html" %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+{% include "_recordatorios_script.html" %}
+{% endblock %}

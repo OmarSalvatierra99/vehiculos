@@ -1,0 +1,79 @@
+<p id="telefono-ayuda" class="sr-only">México (+52): capture diez dígitos. Deje el campo vacío y pulse Guardar para eliminar el teléfono.</p>
+<details class="recordatorio-editor">
+  <summary>
+    <span>Editar mensaje</span>
+    <small>Fecha automática: {{ fecha_recordatorio }}</small>
+  </summary>
+  <div class="recordatorio-editor-body" data-fecha-recordatorio="{{ fecha_recordatorio }}">
+    <div class="recordatorio-tokens" aria-label="Campos automáticos">
+      <span>{nombre completo}</span>
+      <span>{fecha}</span>
+    </div>
+    <label for="mensaje-recordatorio">Mensaje
+      <textarea id="mensaje-recordatorio" rows="10" data-recordatorio-mensaje>{{ mensaje_recordatorio }}</textarea>
+    </label>
+  </div>
+</details>
+<noscript><p class="alert">Active JavaScript para habilitar los enlaces después de guardar el teléfono.</p></noscript>
+{% for mensaje in get_flashed_messages(category_filter=['mensaje']) %}
+<div class="alert success" role="status">{{ mensaje }}</div>
+{% endfor %}
+{% if error %}<div class="alert" role="alert" id="telefono-error">{{ error }}</div>{% endif %}
+{% if credenciales and credenciales.error %}<div class="alert" role="alert">{{ credenciales.error }}</div>{% endif %}
+{% if credenciales and credenciales.mensaje %}
+<div class="alert success" role="status">Credenciales preparadas para {{ credenciales.nombre }}.</div>
+<div class="form">
+  <label for="mensaje-credenciales">Mensaje para revisar antes de enviar
+    <textarea id="mensaje-credenciales" rows="3" readonly autocomplete="off">{{ credenciales.mensaje }}</textarea>
+  </label>
+  <div class="actions-inline">
+    <a class="btn primary" href="{{ credenciales.url }}" target="_blank" rel="noopener noreferrer">Enviar credenciales por WhatsApp</a>
+    <a class="btn ghost" href="{{ url_for('admin', tab='recordatorios') if recordatorios_en_admin|default(false) else url_for('recordatorios') }}">Cerrar credenciales</a>
+  </div>
+</div>
+{% endif %}
+{% for usuario in usuarios %}
+{% set numero = usuario.telefono_whatsapp[3:] if usuario.telefono_whatsapp else '' %}
+<form method="post" action="{{ url_for('recordatorios_guardar', usuario_id=usuario.id) }}" class="form recordatorio-row" aria-label="Recordatorio para {{ usuario.usuario }}" data-recordatorio>
+  <input type="hidden" name="csrf_token" value="{{ session.csrf_recordatorios }}">
+  {% if recordatorios_en_admin|default(false) %}
+  <input type="hidden" name="origen" value="admin">
+  {% endif %}
+  <div class="recordatorio-persona">
+    <strong>{{ usuario.nombre }}</strong>
+    <span>Usuario: {{ usuario.usuario }}</span>
+  </div>
+  <label for="telefono-{{ usuario.id }}">
+    <span>Teléfono<span class="sr-only"> de {{ usuario.usuario }}</span></span>
+    <span class="telefono-campo">
+      <span>+52</span>
+      <input type="tel" inputmode="tel" name="telefono_whatsapp" id="telefono-{{ usuario.id }}"
+        value="{{ telefono_ingresado if usuario_editado == usuario.id else numero }}"
+        data-guardado="{{ numero }}" pattern="[0-9]{10}" autocomplete="off"
+        aria-describedby="telefono-ayuda estado-{{ usuario.id }}{% if usuario_editado == usuario.id %} telefono-error{% endif %}"
+        {% if usuario_editado == usuario.id %}aria-invalid="true"{% endif %}>
+    </span>
+  </label>
+  <div>
+    <div class="actions-inline">
+      <button class="btn primary" type="submit">Guardar</button>
+      <a
+        class="btn ghost"
+        role="link"
+        aria-disabled="true"
+        tabindex="-1"
+        data-whatsapp-url="{{ usuario.recordatorio_url or '' }}"
+        data-recordatorio-url
+        data-chat-url="{{ usuario.chat_url or '' }}"
+        data-nombre="{{ usuario.nombre }}"
+        target="_blank"
+        rel="noopener noreferrer"
+      >Enviar recordatorio</a>
+      <a class="btn ghost" role="link" aria-disabled="true" tabindex="-1" data-whatsapp-url="{{ usuario.credenciales_url or '' }}" target="_blank" rel="noopener noreferrer">Enviar credenciales</a>
+    </div>
+    <p class="hint" id="estado-{{ usuario.id }}" data-estado aria-live="polite">{{ 'Teléfono guardado.' if numero else 'Sin teléfono.' }}</p>
+  </div>
+</form>
+{% else %}
+<p class="empty">No hay usuarios activos para configurar.</p>
+{% endfor %}

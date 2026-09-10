@@ -1,0 +1,36 @@
+<script>
+  const mensajeRecordatorio = document.querySelector('[data-recordatorio-mensaje]');
+  const fechaRecordatorio = document.querySelector('[data-fecha-recordatorio]')?.dataset.fechaRecordatorio || '';
+  document.querySelectorAll('[data-recordatorio]').forEach((form) => {
+    const input = form.elements.telefono_whatsapp;
+    const links = form.querySelectorAll('[data-whatsapp-url]');
+    const recordatorioUrl = form.querySelector('[data-recordatorio-url]');
+    const sync = () => {
+      const changed = input.value !== input.dataset.guardado;
+      const enabled = Boolean(input.dataset.guardado) && !changed;
+      if (recordatorioUrl && mensajeRecordatorio) {
+        const mensaje = mensajeRecordatorio.value
+          .replaceAll('{nombre completo}', recordatorioUrl.dataset.nombre || '')
+          .replaceAll('{fecha}', fechaRecordatorio);
+        recordatorioUrl.dataset.whatsappUrl = recordatorioUrl.dataset.chatUrl + '?' + new URLSearchParams({ text: mensaje }).toString();
+      }
+      links.forEach((link) => {
+        if (enabled) link.setAttribute('href', link.dataset.whatsappUrl);
+        else link.removeAttribute('href');
+        link.setAttribute('aria-disabled', String(!enabled));
+        link.tabIndex = enabled ? 0 : -1;
+      });
+      form.querySelector('[data-estado]').textContent = changed
+        ? 'Cambios sin guardar. Pulse Guardar para usar WhatsApp.'
+        : (enabled ? 'Teléfono guardado.' : 'Sin teléfono. Guarde un número para usar WhatsApp.');
+    };
+    input.addEventListener('input', () => {
+      const match = input.value.replace(/[\s-]/g, '').match(/^(?:\+?52(?:1)?|0052(?:1)?)?([0-9]{10})$/);
+      if (match) input.value = match[1];
+      sync();
+    });
+    window.addEventListener('pageshow', sync);
+    mensajeRecordatorio?.addEventListener('input', sync);
+    sync();
+  });
+</script>
